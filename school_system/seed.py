@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS students (
   address TEXT,
   status TEXT DEFAULT 'Active',
   profile_pic TEXT,
+  blood_group TEXT,
+  house TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -261,6 +263,28 @@ CREATE TABLE IF NOT EXISTS book_issues (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS conduct_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  record_type TEXT NOT NULL CHECK(record_type IN ('Merit','Demerit')),
+  category TEXT,
+  description TEXT,
+  record_date TEXT,
+  recorded_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS school_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT,
+  event_date TEXT NOT NULL,
+  category TEXT DEFAULT 'General',
+  audience TEXT DEFAULT 'All',
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
@@ -441,14 +465,15 @@ def seed():
                              f"2026-01-{d:02d}" if m < 3 else f"2025-{m:02d}-{d:02d}",
                              pn, rand_phone(), f"{pn.replace(' ','.')}@gmail.com".lower(),
                              rnd.choice(["Kisii Town", "Nyanchwa", "Daraja Mbili", "Mwembe", "Getembe", "Kitutu", "Masongo", "Suneka", "Keroka"]),
-                             "Active"))
+                             "Active", rnd.choices(["O+","A+","B+","O-","A-","AB+","B-","AB-"], weights=[38,30,20,6,3,2,1,0])[0],
+                             rnd.choice(["Simba","Chui","Nyati","Tembo"])))
             student_class_id[sid] = cid
             for term in ("Term 1", "Term 2", "Term 3"):
                 enroll_rows.append((sid, cid, term, "2026"))
             sid += 1
     cur.executemany("""INSERT INTO students(admission_no,first_name,middle_name,last_name,gender,dob,admission_date,
-                                            parent_name,parent_phone,parent_email,address,status)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", students)
+                                            parent_name,parent_phone,parent_email,address,status,blood_group,house)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", students)
     student_ids = [r["id"] for r in cur.execute("SELECT id FROM students ORDER BY id")]
     cur.executemany("INSERT INTO enrollments(student_id,class_id,term,academic_year) VALUES(?,?,?,?)", enroll_rows)
 
@@ -704,6 +729,49 @@ def seed():
         total = cur.execute("SELECT total_copies t FROM books WHERE id=?", (bid,)).fetchone()["t"]
         cur.execute("UPDATE books SET available_copies=? WHERE id=?", (max(0, total - active), bid))
 
+    # conduct / discipline records (CBC holistic development) -----------------
+    merit_cats = ["Academic Excellence", "Good Conduct", "Community Service", "Sports Achievement",
+                  "Cleanliness", "Punctuality", "Leadership", "Honesty"]
+    demerit_cats = ["Late Coming", "Noise Making", "Truancy", "Fighting", "Dishonesty",
+                    "Vandalism", "Mobile Phone Use", "Incomplete Homework", "Uniform Violation"]
+    merit_txt = ["Helped classmates prepare for exams", "Won the class science quiz", "Reported a lost wallet to the office",
+                 "Led the cleanliness drive", "Represented the school in games", "Consistently punctual all month",
+                 "Organised the class reading club", "Returned a borrowed book promptly", "Assisted the librarian after school",
+                 "Improved performance in mathematics", "Volunteered for community clean-up", "Demonstrated strong leadership in group work"]
+    demerit_txt = ["Arrived 30 minutes late to class", "Disruptive during lessons", "Missed school without permission",
+                   "Caught using a phone in class", "Involved in a physical alteration in the field", "Failed to submit homework twice",
+                   "Left the compound during break", "Vandalised a classroom notice board", "Disrespectful language to a teacher",
+                   "Cheating in a continuous assessment", "Noise-making during assembly", "Incomplete PE uniform"]
+    conduct_rows = []
+    teacher_names = [r["first_name"] + " " + r["last_name"] for r in cur.execute("SELECT first_name, last_name FROM teachers")]
+    term3_start = _dt2.date(2026, 5, 4)
+    for st in student_ids:
+        if rnd.random() < 0.42:
+            for _ in range(rnd.choice([1, 1, 2, 2, 3])):
+                is_merit = rnd.random() < 0.58
+                cats = merit_cats if is_merit else demerit_cats
+                txts = merit_txt if is_merit else demerit_txt
+                d = term3_start + _dt2.timedelta(days=rnd.randint(0, 96))
+                conduct_rows.append((st, "Merit" if is_merit else "Demerit", rnd.choice(cats),
+                                     rnd.choice(txts), d.isoformat(), rnd.choice(teacher_names)))
+    cur.executemany("""INSERT INTO conduct_records(student_id,record_type,category,description,record_date,recorded_by)
+                       VALUES(?,?,?,?,?,?)""", conduct_rows)
+
+    # school events ---------------------------------------------------------
+    events = [
+        ("Parent-Teacher Conference", "Meet your child's class teacher to discuss progress in Term 2.", "2026-05-30", "Meeting", "Parents"),
+        ("Term 3 Midterm Break", "School closed for midterm. Students resume Monday 22nd June.", "2026-06-12", "Holiday", "All"),
+        ("Music & Drama Festival", "Inter-house music, drama and poetry festival in the school hall.", "2026-06-20", "Creative", "All"),
+        ("Science & Innovation Fair", "Students showcase CBC innovation projects. Parents welcome.", "2026-07-02", "Academic", "All"),
+        ("Academic Clinic - Term 3", "Review of Term 3 continuous assessments; targets for end-term exams.", "2026-07-18", "Meeting", "Parents"),
+        ("Inter-house Games Day", "Athletics, football and netball finals. All students participate.", "2026-07-24", "Sports", "All"),
+        ("End of Term 3 Examinations", "End of term examinations begin. Timetable issued in classes.", "2026-08-04", "Exam", "All"),
+        ("Prize Giving & Closing Ceremony", "End of year prize giving, achievement certificates and closing of Term 3.", "2026-08-14", "Academic", "All"),
+        ("End of Term 3 Holiday", "School closed for the December holiday. Report cards issued.", "2026-08-15", "Holiday", "All"),
+    ]
+    cur.executemany("""INSERT INTO school_events(title,description,event_date,category,audience)
+                       VALUES(?,?,?,?,?)""", events)
+
     # announcements ---------------------------------------------------------
     ann = [
         ("Term 3 Opening", "School reopens for Term 3 on Monday 4th May 2026 at 7:30am. Parents are reminded to clear Term 2 balances.", "All", "Admin"),
@@ -784,7 +852,8 @@ def seed():
           f"{len(exam_rows)} exam scores, {len(pay_rows)} payments, {len(att_rows)} attendance, "
           f"{len(route_ids)} routes, {len(assign_rows)} transport assignments, "
           f"{len(tt_rows)} timetable slots, {len(parent_users)} guardian accounts, "
-          f"{len(book_ids)} books, {len(issue_rows)} library records.")
+          f"{len(book_ids)} books, {len(issue_rows)} library records, "
+          f"{len(conduct_rows)} conduct records, {len(events)} events.")
 
 if __name__ == "__main__":
     seed()

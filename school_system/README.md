@@ -85,13 +85,15 @@ Parent accounts are created automatically from student records: username = the p
 - Per-class fee structures per term; **transport fees auto-added** for route riders
 - Student fee ledger: billed / paid / balance, Cleared / Partial / Critical status
 - Record **or edit** payments — choose payment type, M-PESA / Cash / Bank / Cheque, auto receipt numbers
+- **Auto-split payments**: one payment is automatically applied across terms & items (oldest term first, transport then tuition) with a receipt showing the full breakdown; excess goes to a Prepayment bucket — works in the staff form and the parent portal
+- **Balance tracker everywhere**: the staff fee ledger shows a per-student payment-progress bar, and the staff statement has a per-term tracker; the parent portal tracks the balance after every receipt
 - **Collections by payment type** charts (amount + count per type)
 - **Professional printable receipts** with school badge/logo, receipt number, payment type, amount in words, balance, signature lines — auto-opens after every payment, re-printable and editable from the payments list
 - Itemised statements (Tuition + Transport per term), SMS fee reminders to parents in arrears
 
 ### 🚌 Transport
 - Routes with drivers, capacity, pickup/drop-off times and **per-term fees**
-- Rider assignments (bulk tick from any class; one route per student)
+- Rider assignments with a **live search bar** (search any student by name or admission number; selections survive while typing)
 - Daily boarding register (morning / evening, Boarded / Not Boarded / Excused)
 - Route summaries + monthly transport fee totals
 
@@ -114,6 +116,26 @@ Parent accounts are created automatically from student records: username = the p
 - Skeleton loading screens, friendly empty states, toast notifications with icons
 - **Esc** closes modals; role-aware menus and alerts; version footer
 
+### 🛡️ Discipline & Conduct *(CBC holistic development)*
+- Track **merits & demerits** per student with categories (Academic Excellence, Punctuality, Community Service… / Late Coming, Truancy, Noise Making…) and descriptions
+- **Searchable student picker** by name or admission number when recording
+- Per-term **conduct rating** — Excellent / Good / Satisfactory / Needs Improvement — from net merits
+- Conduct summary shows on the **dashboard**, on **report cards** (conduct line + rating) and in the **parent portal** so parents see behavioural progress — exactly what CBC holistic education expects
+- Teachers and admins record; admin can delete; other roles read-only (server-enforced)
+
+### 🪪 Student ID Cards
+- **Professional ID card generator** with all the credentials a school card needs:
+  - **Front**: school crest/logo + name + motto, student photo, full name, admission number, class, house (Simba/Chui/Nyati/Tembo), blood group, gender, DOB — plus a printed **card number**, a **barcode**, the **Principal's signature** line and a **validity year**
+  - **Back**: guardian name, contact phone, home address, school contacts and a "if found, return to school office" note with barcode
+- Search any student by **name or admission number** (or pick a class) and preview both sides live
+- **Print one card** or **print a whole class** — printing outputs only the cards (app hidden), two cards per sheet
+- New student fields: **house** and **blood group** (shown on the card, the profile and the edit form)
+
+### 📅 School Events & Calendar
+- Full **school calendar**: games days, parent meetings, midterm breaks, exam dates, prize giving — with category, audience and description
+- Upcoming events shown on the **dashboard** and in the **parent portal** (read-only)
+- Admins create / edit / remove events; other staff view
+
 ### 📚 Library (Librarian role)
 - **Book catalogue** — 30+ real books (set books, CBC textbooks, fiction, reference) with title, author, ISBN, publisher, category, shelf location and copy counts; add / edit / remove with a live **Available / Low / All out** status
 - **Issue & return** — the librarian issues a book to any student (due date defaults to 14 days), which decrements the available copies; returning restores them automatically
@@ -135,9 +157,10 @@ Parent accounts are created automatically from student records: username = the p
 
 ### 👨‍👩‍👧 Parent Portal
 - **Sign in with your phone number** — one account per parent, linked to all their children
+- **Admins create parents in Settings → Users** (search bar included): add a parent manually, then **link two or more children** — those children share the same login and portal, with a child switcher to view each child's results, fees, transport, attendance and conduct. Manage a parent's children any time with the 👥 button
 - **My Dashboard** — latest exam mean & grade, class position, fee balance, transport route, attendance snapshot, announcements
 - **Results** — full subject-by-subject results with grades, points, class mean and rank; printable
-- **Fees & Payments** — itemised statement (tuition + transport per term), payment history with receipts, and **pay via M-PESA** (simulated STK push, receipt generated instantly)
+- **Fees & Payments** — a **fee balance tracker**: big outstanding-balance display with an overall payment progress bar, a **per-term breakdown** (billed / paid / balance with progress bars), itemised billing, and a payment history that shows the **balance remaining after each payment** — plus **pay via M-PESA** (simulated STK push, receipt generated instantly)
 - **Transport** — assigned route, driver, pickup times, fee and boarding record
 - **Attendance** — recent school days with status and attendance rate
 - **Announcements** — school news, read-only

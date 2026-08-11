@@ -83,6 +83,20 @@ def acting_name():
     u = auth_user()
     return u["full_name"] if u else "Admin"
 
+def link_students(uid, student_ids):
+    """Replace the set of students linked to a guardian account."""
+    cur = db()
+    cur.execute("DELETE FROM guardian_links WHERE user_id=?", (uid,))
+    seen = set()
+    for sid in student_ids:
+        sid = int(sid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        if q1("SELECT id FROM students WHERE id=?", (sid,)):
+            cur.execute("INSERT INTO guardian_links(user_id,student_id) VALUES(?,?)", (uid, sid))
+    cur.commit()
+
 def log_activity(action, detail=""):
     """Record an audit entry for the current user."""
     u = auth_user()
@@ -162,6 +176,13 @@ def mean_grade_from_points(avg_pts, scale="cbc"):
     if avg_pts >= 2.5: return "M"
     if avg_pts >= 1.5: return "A"
     return "B"
+
+def conduct_rating(net):
+    """CBC-style conduct rating from net merits (merits - demerits)."""
+    if net >= 6: return "Excellent"
+    if net >= 2: return "Good"
+    if net >= -1: return "Satisfactory"
+    return "Needs Improvement"
 
 def subjects_for_grade(gnum):
     """Subjects taught in a given grade (CBC curriculum)."""
@@ -316,7 +337,8 @@ def me():
 @admin_required
 def list_users():
     rows = q("""SELECT u.id, u.username, u.full_name, u.role, u.active, u.profile_pic,
-                       t.first_name, t.last_name
+                       t.first_name, t.last_name,
+                       (SELECT COUNT(*) FROM guardian_links gl WHERE gl.user_id=u.id) child_count
                 FROM users u LEFT JOIN teachers t ON t.id=u.teacher_id
                 ORDER BY u.role, u.username""")
     return jsonify(rows_to_dicts(rows))
@@ -327,13 +349,16 @@ def add_user():
     d = request.get_json(force=True) or {}
     if not d.get("username") or not d.get("password") or not d.get("full_name"):
         return jsonify({"error": "username, password and full_name required"}), 400
-    if d.get("role") not in ("admin", "teacher", "accounts"):
+    if d.get("role") not in ("admin", "teacher", "accounts", "guardian"):
         return jsonify({"error": "Invalid role"}), 400
     try:
         uid = exe("INSERT INTO users(username,password_hash,full_name,role) VALUES(?,?,?,?)",
                   (d["username"].strip(), phash(d["password"]), d["full_name"].strip(), d["role"]))
     except sqlite3.IntegrityError:
         return jsonify({"error": "Username already exists"}), 400
+    # guardian accounts can be linked to one or more students (shared portal)
+    if d.get("role") == "guardian" and d.get("student_ids"):
+        link_students(uid, d["student_ids"])
     log_activity("User created", f"{d['username']} ({d['role']})")
     return jsonify({"id": uid})
 
@@ -343,12 +368,28 @@ def update_user(uid):
     d = request.get_json(force=True) or {}
     fields = ["full_name", "role", "active"]
     sets = [f for f in fields if f in d]
-    if "role" in d and d["role"] not in ("admin", "teacher", "accounts"):
+    if "role" in d and d["role"] not in ("admin", "teacher", "accounts", "guardian"):
         return jsonify({"error": "Invalid role"}), 400
     if sets:
         exe("UPDATE users SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?",
             tuple(d[f] for f in sets) + (uid,))
+    # (re)link children for guardian accounts
+    if "student_ids" in d and d.get("student_ids") is not None:
+        link_students(uid, d["student_ids"])
+    log_activity("User updated", f"#{uid}")
     return jsonify({"ok": True})
+
+@app.route("/api/users/<int:uid>/children")
+@admin_required
+def user_children(uid):
+    rows = q("""SELECT st.id, st.first_name, st.last_name, st.admission_no, st.profile_pic,
+                       c.name class_name
+                FROM guardian_links gl
+                JOIN students st ON st.id=gl.student_id
+                LEFT JOIN enrollments e ON e.student_id=st.id AND e.term=(SELECT value FROM settings WHERE key='current_term')
+                LEFT JOIN classes c ON c.id=e.class_id
+                WHERE gl.user_id=? ORDER BY st.first_name""", (uid,))
+    return jsonify(rows_to_dicts(rows))
 
 @app.route("/api/users/<int:uid>/password", methods=["PUT"])
 @admin_required
@@ -513,9 +554,15 @@ def dashboard():
         "issued": q1("SELECT COUNT(*) c FROM book_issues WHERE status IN ('Issued','Overdue')")["c"],
         "overdue": q1("SELECT COUNT(*) c FROM book_issues WHERE status='Overdue'")["c"],
     }
+    tdy = datetime.date.today().isoformat()
+    upcoming_events = rows_to_dicts(q("""SELECT * FROM school_events WHERE event_date>=? ORDER BY event_date LIMIT 4""", (tdy,)))
+    conduct = {"merits": q1("SELECT COUNT(*) c FROM conduct_records WHERE record_type='Merit' AND record_date>=?", (s.get("term_start") or "2026-05-01",))["c"],
+               "demerits": q1("SELECT COUNT(*) c FROM conduct_records WHERE record_type='Demerit' AND record_date>=?", (s.get("term_start") or "2026-05-01",))["c"]}
     return jsonify({
         "settings": s,
         "library": lib,
+        "upcoming_events": upcoming_events,
+        "conduct": conduct,
         "alerts": alerts,
         "activity": feed,
         "counts": {"students": total_students, "teachers": total_teachers,
@@ -560,12 +607,12 @@ def add_student():
     adm = (d.get("admission_no") or "").strip() or f"GF/{year}/{datetime.date.today().year%100}{random_seq()}"
     try:
         st_id = exe("""INSERT INTO students(admission_no,first_name,middle_name,last_name,gender,dob,admission_date,
-                                            parent_name,parent_phone,parent_email,address,status)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                            parent_name,parent_phone,parent_email,address,status,blood_group,house)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (adm, d.get("first_name"), d.get("middle_name", ""), d.get("last_name"),
                      d.get("gender"), d.get("dob"), d.get("admission_date") or datetime.date.today().isoformat(),
                      d.get("parent_name"), d.get("parent_phone"), d.get("parent_email"),
-                     d.get("address"), "Active"))
+                     d.get("address"), "Active", d.get("blood_group"), d.get("house")))
     except sqlite3.IntegrityError:
         return jsonify({"error": "Admission number already exists"}), 400
     if d.get("class_id"):
@@ -583,7 +630,8 @@ def random_seq():
 def update_student(sid):
     d = request.get_json(force=True) or {}
     fields = ["first_name", "middle_name", "last_name", "gender", "dob", "admission_date",
-              "parent_name", "parent_phone", "parent_email", "address", "status", "admission_no"]
+              "parent_name", "parent_phone", "parent_email", "address", "status", "admission_no",
+              "blood_group", "house"]
     sets = [f for f in fields if f in d]
     if not sets:
         return jsonify({"error": "No fields"}), 400
@@ -1177,26 +1225,67 @@ def record_payment():
         if not pt:
             return jsonify({"error": "Invalid payment type"}), 400
     receipt = "RCP-" + str(q1("SELECT COALESCE(MAX(CAST(SUBSTR(receipt_no,5) AS INTEGER)),9999)+1 m FROM fee_payments")["m"])
+    year = settings_map().get("academic_year", "2026")
+    term = d.get("term") or settings_map().get("current_term", "Term 3")
+    method = d.get("method") or "M-PESA"
+    notes = d.get("notes") or ""
+    if d.get("auto_split"):
+        # one payment, automatically applied to outstanding fees + transport (oldest term first)
+        parts = split_allocation(d["student_id"], amount, year)
+        if not parts:
+            return jsonify({"error": "No outstanding fees to apply this payment to"}), 400
+        for part in parts:
+            part_notes = f"Auto-split · {part['label']} · {part['term']}" + (f" · {notes}" if notes else "")
+            exe("""INSERT INTO fee_payments(student_id,payment_type_id,amount,payment_date,term,method,reference,receipt_no,recorded_by,notes)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (d["student_id"], part["payment_type_id"], part["amount"],
+                 d.get("payment_date") or datetime.date.today().isoformat(),
+                 part["term"], method, d.get("reference") or "", receipt, acting_name(), part_notes))
+        first_id = q1("SELECT id FROM fee_payments WHERE receipt_no=?", (receipt,))["id"]
+        summary = ", ".join(f"{p['label']} {fmt_amount(p['amount'])} ({p['term']})" for p in parts)
+        log_activity("Payment recorded (auto-split)", f"{receipt} · {method} · {summary}")
+        return jsonify({"id": first_id, "receipt_no": receipt, "split": True, "parts": len(parts)})
     pid = exe("""INSERT INTO fee_payments(student_id,payment_type_id,amount,payment_date,term,method,reference,receipt_no,recorded_by,notes)
                  VALUES(?,?,?,?,?,?,?,?,?,?)""",
               (d["student_id"], ptid, amount, d.get("payment_date") or datetime.date.today().isoformat(),
-               d.get("term") or settings_map().get("current_term", "Term 3"),
-               d.get("method") or "M-PESA", d.get("reference") or "", receipt,
-               acting_name(), d.get("notes") or ""))
-    log_activity("Payment recorded", f"{receipt} · {d.get('method') or 'M-PESA'} · {fmt_amount(amount)}")
+               term, method, d.get("reference") or "", receipt,
+               acting_name(), notes))
+    log_activity("Payment recorded", f"{receipt} · {method} · {fmt_amount(amount)}")
     return jsonify({"id": pid, "receipt_no": receipt})
 
 @app.route("/api/finance/payments/<int:pid>", methods=["PUT"])
 @finance_required
 def update_payment(pid):
     d = request.get_json(force=True) or {}
-    fields = ["amount", "payment_date", "term", "method", "reference", "notes", "payment_type_id"]
-    sets = [f for f in fields if f in d]
-    if "amount" in d and d["amount"] is not None and float(d["amount"]) <= 0:
-        return jsonify({"error": "Amount must be positive"}), 400
-    if sets:
-        exe("UPDATE fee_payments SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?",
-            tuple(d[f] for f in sets) + (pid,))
+    rec = q1("SELECT * FROM fee_payments WHERE id=?", (pid,))
+    if not rec:
+        return jsonify({"error": "Payment not found"}), 404
+    rows = q("SELECT * FROM fee_payments WHERE receipt_no=?", (rec["receipt_no"],))
+    shared = {}
+    for f in ("payment_date", "method", "reference", "notes"):
+        if f in d:
+            shared[f] = d[f]
+    if "amount" in d and d["amount"] is not None:
+        new_total = float(d["amount"])
+        if new_total <= 0:
+            return jsonify({"error": "Amount must be positive"}), 400
+        if len(rows) > 1:
+            # split receipt: redistribute the new total across the same buckets
+            old_total = sum(r["amount"] for r in rows)
+            cur = db()
+            for r in rows:
+                ratio = r["amount"] / old_total if old_total else 1.0 / len(rows)
+                cur.execute("UPDATE fee_payments SET amount=? WHERE id=?",
+                            (round(new_total * ratio, 2), r["id"]))
+            cur.commit()
+        else:
+            exe("UPDATE fee_payments SET amount=? WHERE id=?", (new_total, pid))
+    if shared:
+        sets = ", ".join(f"{f}=?" for f in shared)
+        cur = db()
+        cur.execute("UPDATE fee_payments SET " + sets + " WHERE receipt_no=?", tuple(shared.values()) + (rec["receipt_no"],))
+        cur.commit()
+    log_activity("Payment updated", f"{rec['receipt_no']}")
     return jsonify({"ok": True})
 
 def statement_data(sid):
@@ -1226,6 +1315,69 @@ def statement_data(sid):
     return {"student": dict(st), "class": cl, "billing": billing, "payments": payments,
             "total_billed": total_billed, "total_paid": total_paid,
             "balance": total_billed - total_paid}
+
+def split_allocation(sid, amount, year):
+    """Allocate one payment amount across outstanding term/item buckets.
+
+    Order: oldest term first (Term 1 -> 3); within a term, Transport before
+    Tuition. Returns a list of {term, payment_type_id, label, amount}.
+    Any remainder beyond the total outstanding becomes a General prepayment
+    on the current term so the receipt total always equals the amount paid.
+    """
+    s = settings_map()
+    cl = student_class(sid)
+    buckets = []
+    ttype = q1("SELECT id FROM payment_types WHERE category='Transport' ORDER BY id LIMIT 1")
+    ftype = q1("""SELECT id FROM payment_types WHERE name LIKE '%Tuition%' ORDER BY id LIMIT 1""")
+    gtype = q1("SELECT id FROM payment_types WHERE name='General' OR name LIKE '%Prepay%' ORDER BY id LIMIT 1")
+    trans_tid = ttype["id"] if ttype else None
+    tuit_tid = ftype["id"] if ftype else None
+    gen_tid = gtype["id"] if gtype else None
+
+    for term in ("Term 1", "Term 2", "Term 3"):
+        fee = q1("SELECT amount FROM fee_structures WHERE class_id=? AND term=? AND academic_year=?",
+                 (cl["id"] if cl else -1, term, year))
+        route_fee = q1("""SELECT COALESCE(tr.fee,0) f FROM transport_assignments ta
+                          JOIN transport_routes tr ON tr.id=ta.route_id
+                          WHERE ta.student_id=? AND ta.academic_year=? AND ta.status='Active'""", (sid, year))
+        tuition = fee["amount"] if fee else 0
+        transport = route_fee["f"] if route_fee else 0
+        term_billed = tuition + transport
+        if term_billed <= 0:
+            continue
+        term_paid = q1("""SELECT COALESCE(SUM(amount),0) a FROM fee_payments
+                          WHERE student_id=? AND term=? AND payment_date LIKE ?""",
+                       (sid, term, f"{year}-%"))["a"]
+        term_owed = term_billed - term_paid
+        if term_owed <= 0:
+            continue
+        transport_paid = q1("""SELECT COALESCE(SUM(fp.amount),0) a FROM fee_payments fp
+                               WHERE fp.student_id=? AND fp.term=? AND fp.payment_date LIKE ?
+                               AND fp.payment_type_id IN (SELECT id FROM payment_types WHERE category='Transport')""",
+                            (sid, term, f"{year}-%"))["a"]
+        transport_owed = max(0, transport - transport_paid)
+        if transport_owed > 0:
+            buckets.append({"term": term, "payment_type_id": trans_tid, "label": "Transport",
+                            "owed": transport_owed})
+        tuition_owed = term_owed - transport_owed
+        if tuition_owed > 0:
+            buckets.append({"term": term, "payment_type_id": tuit_tid, "label": "Tuition",
+                            "owed": tuition_owed})
+
+    remaining = amount
+    parts = []
+    for b in buckets:
+        if remaining <= 0:
+            break
+        take = min(remaining, b["owed"])
+        if take > 0:
+            parts.append({"term": b["term"], "payment_type_id": b["payment_type_id"],
+                          "label": b["label"], "amount": round(take, 2)})
+            remaining -= take
+    if remaining > 0:
+        parts.append({"term": s.get("current_term", "Term 3"), "payment_type_id": gen_tid,
+                      "label": "Prepayment", "amount": round(remaining, 2)})
+    return parts
 
 @app.route("/api/finance/statement/<int:sid>")
 @login_required
@@ -1505,17 +1657,30 @@ def receipt_detail(pid):
     st = q1("SELECT * FROM students WHERE id=?", (p["student_id"],))
     if not st:
         return jsonify({"error": "Student not found"}), 404
-    cl = student_class(st["id"], p["term"])
+    # aggregate every part sharing this receipt (auto-split payments)
+    rows = q("""SELECT fp.*, pt.name payment_type_name, pt.category payment_type_category
+                FROM fee_payments fp LEFT JOIN payment_types pt ON pt.id=fp.payment_type_id
+                WHERE fp.receipt_no=? ORDER BY fp.id""", (p["receipt_no"],))
+    total = sum(r["amount"] for r in rows)
+    parts = [{"term": r["term"], "amount": r["amount"],
+              "payment_type_name": r["payment_type_name"] or "General",
+              "payment_type_category": r["payment_type_category"] or "Other",
+              "id": r["id"]} for r in rows]
+    cl = student_class(st["id"], rows[0]["term"] if rows else "Term 3")
     s = settings_map()
     paid = q1("SELECT COALESCE(SUM(amount),0) a FROM fee_payments WHERE student_id=?", (st["id"],))["a"]
     billed = 0
     for term in ("Term 1", "Term 2", "Term 3"):
         billed += billed_for(st["id"], term, s.get("academic_year", "2026"))
     pt = q1("SELECT * FROM payment_types WHERE id=?", (p["payment_type_id"],)) if p["payment_type_id"] else None
-    return jsonify({"payment": dict(p), "student": dict(st), "class": cl,
+    main = dict(rows[0])
+    main["amount"] = total
+    main["split"] = len(rows) > 1
+    return jsonify({"payment": main, "student": dict(st), "class": cl,
                     "settings": s, "paid_to_date": paid,
                     "total_billed": billed, "balance": billed - paid,
-                    "payment_type": dict(pt) if pt else None})
+                    "payment_type": dict(pt) if pt else None,
+                    "parts": parts})
 
 # ------------------------------------------------------------------ attendance
 @app.route("/api/attendance")
@@ -1750,6 +1915,20 @@ def guardian_pay():
     receipt = "RCP-" + str(q1("SELECT COALESCE(MAX(CAST(SUBSTR(receipt_no,5) AS INTEGER)),9999)+1 m FROM fee_payments")["m"])
     import secrets as _s
     ref = d.get("reference") or "MP" + _s.token_hex(4).upper()
+    year = settings_map().get("academic_year", "2026")
+    if d.get("auto_split"):
+        parts = split_allocation(sid, amount, year)
+        if not parts:
+            return jsonify({"error": "No outstanding fees to apply this payment to"}), 400
+        for part in parts:
+            exe("""INSERT INTO fee_payments(student_id,payment_type_id,amount,payment_date,term,method,reference,receipt_no,recorded_by,notes)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (sid, part["payment_type_id"], part["amount"], datetime.date.today().isoformat(),
+                 part["term"], "M-PESA", ref, receipt, acting_name(),
+                 f"Auto-split · {part['label']} · {part['term']} · Paid via Parent Portal (M-PESA)"))
+        first_id = q1("SELECT id FROM fee_payments WHERE receipt_no=?", (receipt,))["id"]
+        log_activity("Portal payment (auto-split)", f"{receipt} · {fmt_amount(amount)} · {acting_name()}")
+        return jsonify({"id": first_id, "receipt_no": receipt, "split": True, "parts": len(parts)})
     pid = exe("""INSERT INTO fee_payments(student_id,payment_type_id,amount,payment_date,term,method,reference,receipt_no,recorded_by,notes)
                  VALUES(?,?,?,?,?,?,?,?,?,?)""",
               (sid, d.get("payment_type_id"), amount, datetime.date.today().isoformat(),
@@ -1818,6 +1997,183 @@ def curriculum():
                 subj.append({"id": s["id"], "name": s["name"], "code": s["code"], "category": s["category"]})
         b["subjects"] = subj
     return jsonify(bands)
+
+# ------------------------------------------------------------------ discipline / conduct
+@app.route("/api/discipline")
+@login_required
+def discipline_records():
+    rec_type = request.args.get("type", "")
+    class_id = request.args.get("class_id", type=int)
+    q_ = request.args.get("q", "").strip().lower()
+    rows = q("""SELECT cr.*, st.first_name, st.last_name, st.admission_no,
+                       c.name class_name
+                FROM conduct_records cr
+                JOIN students st ON st.id=cr.student_id
+                LEFT JOIN enrollments e ON e.student_id=st.id AND e.term=(SELECT value FROM settings WHERE key='current_term')
+                LEFT JOIN classes c ON c.id=e.class_id
+                ORDER BY cr.record_date DESC, cr.id DESC LIMIT 500""")
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["student_name"] = f"{d['first_name']} {d['last_name']}"
+        if rec_type and d["record_type"] != rec_type:
+            continue
+        if class_id and d.get("class_name"):
+            cl = q1("SELECT id FROM classes WHERE name=?", (d["class_name"],))
+            if not cl or cl["id"] != class_id:
+                continue
+        if q_ and q_ not in (d["student_name"] + " " + d["admission_no"] + " " + (d["category"] or "")).lower():
+            continue
+        out.append(d)
+    return jsonify(out)
+
+@app.route("/api/discipline", methods=["POST"])
+@role_required("admin", "teacher")
+def discipline_add():
+    d = request.get_json(force=True) or {}
+    if not d.get("student_id") or d.get("record_type") not in ("Merit", "Demerit"):
+        return jsonify({"error": "student_id and record_type (Merit/Demerit) required"}), 400
+    if not d.get("category"):
+        return jsonify({"error": "Select a category"}), 400
+    rid = exe("""INSERT INTO conduct_records(student_id,record_type,category,description,record_date,recorded_by)
+                 VALUES(?,?,?,?,?,?)""",
+              (d["student_id"], d["record_type"], d["category"], d.get("description"),
+               d.get("record_date") or datetime.date.today().isoformat(), acting_name()))
+    st = q1("SELECT first_name, last_name FROM students WHERE id=?", (d["student_id"],))
+    log_activity("Conduct recorded", f"{d['record_type']} ({d['category']}) for {st['first_name'] if st else ''} {st['last_name'] if st else ''}")
+    return jsonify({"id": rid})
+
+@app.route("/api/discipline/<int:rid>", methods=["DELETE"])
+@admin_required
+def discipline_delete(rid):
+    exe("DELETE FROM conduct_records WHERE id=?", (rid,))
+    log_activity("Conduct record removed", f"#{rid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/discipline/summary")
+@login_required
+def discipline_summary():
+    s = settings_map()
+    term_start = s.get("term_start") or "2026-05-01"
+    merits = q1("SELECT COUNT(*) c FROM conduct_records WHERE record_type='Merit' AND record_date>=?", (term_start,))["c"]
+    demerits = q1("SELECT COUNT(*) c FROM conduct_records WHERE record_type='Demerit' AND record_date>=?", (term_start,))["c"]
+    today = q1("SELECT COUNT(*) c FROM conduct_records WHERE record_date=?", (datetime.date.today().isoformat(),))["c"]
+    top = q("""SELECT st.id, st.first_name, st.last_name, st.admission_no, c.name class_name,
+                      SUM(CASE WHEN cr.record_type='Merit' THEN 1 ELSE 0 END) merits,
+                      SUM(CASE WHEN cr.record_type='Demerit' THEN 1 ELSE 0 END) demerits
+               FROM conduct_records cr JOIN students st ON st.id=cr.student_id
+               LEFT JOIN enrollments e ON e.student_id=st.id AND e.term=(SELECT value FROM settings WHERE key='current_term')
+               LEFT JOIN classes c ON c.id=e.class_id
+               WHERE cr.record_date>=?
+               GROUP BY st.id ORDER BY (merits - demerits) DESC LIMIT 5""", (term_start,))
+    return jsonify({"merits": merits, "demerits": demerits, "today": today,
+                    "top": rows_to_dicts(top)})
+
+@app.route("/api/discipline/student/<int:sid>")
+@login_required
+def discipline_student(sid):
+    s = settings_map()
+    term_start = s.get("term_start") or "2026-05-01"
+    term_end = s.get("term_end") or "2026-08-31"
+    merits = q1("SELECT COUNT(*) c FROM conduct_records WHERE student_id=? AND record_type='Merit' AND record_date BETWEEN ? AND ?", (sid, term_start, term_end))["c"]
+    demerits = q1("SELECT COUNT(*) c FROM conduct_records WHERE student_id=? AND record_type='Demerit' AND record_date BETWEEN ? AND ?", (sid, term_start, term_end))["c"]
+    recent = rows_to_dicts(q("""SELECT * FROM conduct_records WHERE student_id=? ORDER BY record_date DESC, id DESC LIMIT 10""", (sid,)))
+    return jsonify({"merits": merits, "demerits": demerits, "net": merits - demerits,
+                    "rating": conduct_rating(merits - demerits), "recent": recent})
+
+# ------------------------------------------------------------------ events
+@app.route("/api/events")
+@any_required
+def events_list():
+    rows = q("SELECT * FROM school_events ORDER BY event_date")
+    today = datetime.date.today().isoformat()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["upcoming"] = d["event_date"] >= today
+        out.append(d)
+    return jsonify(out)
+
+@app.route("/api/events", methods=["POST"])
+@admin_required
+def events_add():
+    d = request.get_json(force=True) or {}
+    if not d.get("title") or not d.get("event_date"):
+        return jsonify({"error": "title and event_date required"}), 400
+    eid = exe("""INSERT INTO school_events(title,description,event_date,category,audience)
+                 VALUES(?,?,?,?,?)""",
+              (d["title"].strip(), d.get("description"), d["event_date"],
+               d.get("category") or "General", d.get("audience") or "All"))
+    log_activity("Event created", f"{d['title'].strip()} on {d['event_date']}")
+    return jsonify({"id": eid})
+
+@app.route("/api/events/<int:eid>", methods=["PUT"])
+@admin_required
+def events_update(eid):
+    d = request.get_json(force=True) or {}
+    fields = ["title", "description", "event_date", "category", "audience"]
+    sets = [f for f in fields if f in d]
+    if sets:
+        exe("UPDATE school_events SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?",
+            tuple(d[f] for f in sets) + (eid,))
+    log_activity("Event updated", f"#{eid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/events/<int:eid>", methods=["DELETE"])
+@admin_required
+def events_delete(eid):
+    exe("DELETE FROM school_events WHERE id=?", (eid,))
+    log_activity("Event removed", f"#{eid}")
+    return jsonify({"ok": True})
+
+# ------------------------------------------------------------------ ID cards
+def card_number(st, year):
+    try:
+        num = int(st["admission_no"].split("/")[-1])
+    except Exception:
+        num = st["id"]
+    return f"EP-{year}-{num:05d}"
+
+def idcard_payload(sid):
+    st = q1("SELECT * FROM students WHERE id=?", (sid,))
+    if not st:
+        return None
+    cl = student_class(sid)
+    s = settings_map()
+    year = s.get("academic_year", "2026")
+    out = dict(st)
+    out["class_name"] = cl["name"] if cl else "—"
+    out["grade"] = cl["grade"] if cl else "—"
+    out["card_no"] = card_number(out, year)
+    out["valid_until"] = f"{year}-12-31"
+    out["settings"] = s
+    return out
+
+@app.route("/api/idcards/student/<int:sid>")
+@login_required
+def idcard_student(sid):
+    data = idcard_payload(sid)
+    if not data:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(data)
+
+@app.route("/api/idcards/class/<int:cid>")
+@login_required
+def idcard_class(cid):
+    rows = q("""SELECT DISTINCT st.* FROM enrollments e JOIN students st ON st.id=e.student_id
+                WHERE e.class_id=? AND st.status='Active' ORDER BY st.first_name""", (cid,))
+    cl = q1("SELECT * FROM classes WHERE id=?", (cid,))
+    s = settings_map()
+    year = s.get("academic_year", "2026")
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["class_name"] = cl["name"] if cl else "—"
+        d["grade"] = cl["grade"] if cl else "—"
+        d["card_no"] = card_number(d, year)
+        out.append(d)
+    return jsonify({"class": dict(cl) if cl else None, "students": out,
+                    "settings": s, "year": year})
 
 # ------------------------------------------------------------------ library
 @app.route("/api/library/books")

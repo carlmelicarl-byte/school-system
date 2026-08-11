@@ -297,6 +297,11 @@ const NAV = [
   { group: "Library", items: [
     { v: "library", label: "Library", icon: "i-book", roles: ["admin", "teacher", "librarian"] },
   ]},
+  { group: "School Life", items: [
+    { v: "events", label: "Events", icon: "i-calendar", roles: ["admin", "teacher", "accounts", "librarian"] },
+    { v: "discipline", label: "Discipline & Conduct", icon: "i-shield", roles: ["admin", "teacher"] },
+    { v: "idcards", label: "ID Cards", icon: "i-card", roles: ["admin", "teacher"] },
+  ]},
   { group: "System", items: [{ v: "settings", label: "Settings", icon: "i-gear", roles: ["admin"] }] },
   { group: "Parent Portal", items: [
     { v: "gdash", label: "My Dashboard", icon: "i-grid", roles: ["guardian"] },
@@ -305,6 +310,7 @@ const NAV = [
     { v: "gtransport", label: "Transport", icon: "i-bus", roles: ["guardian"] },
     { v: "gattendance", label: "Attendance", icon: "i-calendar", roles: ["guardian"] },
     { v: "gannounce", label: "Announcements", icon: "i-message", roles: ["guardian"] },
+    { v: "gevents", label: "School Events", icon: "i-calendar", roles: ["guardian"] },
   ]},
 ];
 
@@ -408,6 +414,10 @@ const VIEWS = {
   attendance:   { title: "Attendance",       sub: "Daily registers & summaries",   fn: view_attendance },
   communication:{ title: "Communication",    sub: "Announcements & message centre", fn: view_communication },
   library:      { title: "Library",           sub: "Books, issues & returns",       fn: view_library },
+  events:       { title: "Events",            sub: "School calendar & activities",  fn: view_events },
+  discipline:   { title: "Discipline & Conduct", sub: "Merits, demerits & behaviour", fn: view_discipline },
+  gevents:      { title: "School Events",     sub: "What's happening at school",    fn: view_gevents },
+  idcards:      { title: "ID Cards",          sub: "Student identification cards", fn: view_idcards },
   settings:     { title: "Settings",         sub: "School configuration & users",  fn: view_settings },
   gdash:        { title: "My Dashboard",     sub: "Your children at a glance",     fn: view_gdash },
   gresults:     { title: "Results",          sub: "Exam results & performance",    fn: view_gresults },
@@ -696,6 +706,11 @@ async function view_dashboard(el) {
             <div class="a-go" onclick="openView('${a.view}')">Open <svg style="width:13px;height:13px"><use href="#i-arrow"/></svg></div>
           </div>`).join("")}
       </div>
+      <div class="section-title">Conduct this term</div>
+      <div class="kgrid" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><div class="k">Merits</div><div class="v" style="color:var(--green-dark)">${d.conduct ? d.conduct.merits : 0}</div></div>
+        <div class="kpi"><div class="k">Demerits</div><div class="v" style="color:${d.conduct && d.conduct.demerits > 0 ? "var(--red)" : "var(--green-dark)"}">${d.conduct ? d.conduct.demerits : 0}</div></div>
+      </div>
       <div class="section-title">Recent activity</div>
       <div>
         ${d.activity.map(act => `
@@ -720,6 +735,20 @@ async function view_dashboard(el) {
             <td><span class="badge ${p.method === "M-PESA" ? "b-green" : p.method === "Cash" ? "b-amber" : "b-blue"}">${esc(p.method || "—")}</span></td>
             <td>${fmtDate(p.payment_date)}</td><td><small>${esc(p.reference || "—")}</small></td></tr>`).join("")}
           </tbody></table></div>
+      </div>
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-head"><h3>Upcoming events</h3><p>School calendar</p></div>
+        <div>
+          ${(d.upcoming_events || []).map(ev => `
+            <div style="display:flex;gap:11px;align-items:center;padding:8px 0;border-bottom:1px solid #f1f5f9">
+              <div style="width:40px;flex:none;text-align:center;background:var(--green-100);color:var(--green-dark);border-radius:9px;padding:5px 2px">
+                <b style="font-size:13px">${fmtDate(ev.event_date).split(" ")[0]}</b>
+                <small style="display:block;font-size:9px">${fmtDate(ev.event_date).split(" ")[1]}</small>
+              </div>
+              <div><b style="font-size:13px">${esc(ev.title)}</b>
+                <small style="display:block;color:var(--muted)">${esc(ev.category)} · ${esc(ev.audience)}</small></div>
+            </div>`).join("") || '<p style="color:var(--muted)">No upcoming events</p>'}
+        </div>
       </div>
       <div class="card">
         <div class="card-head"><h3>Recent announcements</h3><p>Latest news</p></div>
@@ -865,6 +894,12 @@ async function studentForm(id) {
     <div><label>Parent Phone</label><input id="f-pphone" value="${esc(st.parent_phone || "")}" placeholder="07XX XXX XXX"></div>
     <div><label>Parent Email</label><input id="f-pemail" value="${esc(st.parent_email || "")}"></div>
     <div class="full"><label>Home Address</label><input id="f-addr" value="${esc(st.address || "")}"></div>
+    <div><label>Blood Group</label><select id="f-blood">
+      ${["", "O+", "A+", "B+", "AB+", "O-", "A-", "B-", "AB-"].map(b => `<option ${st.blood_group === b ? "selected" : ""}>${b}</option>`).join("")}
+    </select></div>
+    <div><label>House</label><select id="f-house">
+      ${["", "Simba", "Chui", "Nyati", "Tembo"].map(h => `<option ${st.house === h ? "selected" : ""}>${h}</option>`).join("")}
+    </select></div>
     <div><label>Status</label><select id="f-status">
       ${["Active", "Transferred", "Graduated"].map(x => `<option ${st.status === x ? "selected" : ""}>${x}</option>`).join("")}
     </select></div>
@@ -882,6 +917,7 @@ async function studentForm(id) {
       dob: $("#f-dob").value, admission_date: $("#f-admdate").value,
       parent_name: $("#f-parent").value.trim(), parent_phone: $("#f-pphone").value.trim(),
       parent_email: $("#f-pemail").value.trim(), address: $("#f-addr").value.trim(), status: $("#f-status").value,
+      blood_group: $("#f-blood").value, house: $("#f-house").value,
     };
     if (!body.first_name || !body.last_name) { toast("First and last name are required", "err"); return; }
     try {
@@ -998,6 +1034,9 @@ async function studentDetail(id) {
       <div class="kpi"><div class="k">Parent</div><div class="v" style="font-size:15px">${esc(d.parent_name || "—")}</div></div>
       <div class="kpi"><div class="k">Parent phone</div><div class="v" style="font-size:15px">${esc(d.parent_phone || "—")}</div></div>
       <div class="kpi"><div class="k">Address</div><div class="v" style="font-size:15px">${esc(d.address || "—")}</div></div>
+      <div class="kpi"><div class="k">House</div><div class="v" style="font-size:15px">${esc(d.house || "—")}</div></div>
+      <div class="kpi"><div class="k">Blood group</div><div class="v" style="font-size:15px">${esc(d.blood_group || "—")}</div></div>
+      <div class="kpi"><div class="k">Actions</div><div class="v" style="font-size:13px"><span class="pill-link" onclick="closeModal();openView('idcards',{studentId:${d.id}})">🪪 ID Card</span></div></div>
     </div>
     <div class="section-title">Transport</div>
     ${tr ? `<div class="kpi" style="border-color:var(--green-100)"><div class="k">Assigned route</div>
@@ -1588,6 +1627,7 @@ async function view_reportcard(el, params) {
     const set = state.settings || {};
     const comments = await api(`/api/exams/${eid}/comments`);
     const savedComment = comments[sid] || "";
+    const conduct = await api("/api/discipline/student/" + sid).catch(() => null);
     $("#rc-area").innerHTML = `
     <div class="report-sheet" id="report-sheet">
       <div class="r-head">
@@ -1626,6 +1666,12 @@ async function view_reportcard(el, params) {
         <div class="box"><b>${agg.total_points}</b><span>Level Points</span></div>
         <div class="box"><b>${d.class_rank || "—"} / ${d.class_size || "—"}</b><span>Class Position</span></div>
       </div>
+      ${conduct ? `
+      <div style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <b style="font-size:12.5px">Conduct this term:</b>
+        <span class="badge ${CONDUCT_STYLES[conduct.rating] || "b-slate"}">${esc(conduct.rating)}</span>
+        <small style="color:var(--slate)">${conduct.merits} merits · ${conduct.demerits} demerits</small>
+      </div>` : ""}
       <p style="font-size:10.5px;color:var(--slate);text-align:center;margin-top:4px">${CBC_LABEL}</p>
       <p style="font-size:12.5px"><b>Teacher's comment:</b></p>
       <div class="r-comment">${esc(savedComment || "A good performance. Keep working hard. — " + (set.school_name || "School"))}</div>
@@ -1699,7 +1745,7 @@ async function view_finance(el) {
       <div class="search-wrap"><svg><use href="#i-search"/></svg><input class="input" id="fin-q" placeholder="Search student…"></div>
     </div>
     <div class="table-wrap"><table class="tbl">
-      <thead><tr><th>Student</th><th>Class</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Balance</th><th style="min-width:120px">Status</th><th>Payments</th>${acctBtn('<th class="num">Actions</th>')}</tr></thead>
+      <thead><tr><th>Student</th><th>Class</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Balance</th><th style="min-width:150px">Payment progress</th><th>Status</th><th>Payments</th>${acctBtn('<th class="num">Actions</th>')}</tr></thead>
       <tbody id="fin-body">${finRows(d.students)}</tbody>
     </table></div>
   </div>
@@ -1707,20 +1753,21 @@ async function view_finance(el) {
   <div class="card" style="margin-top:18px">
     <div class="card-head"><h3>Recent payments</h3><p>Latest transactions</p></div>
     <div class="table-wrap"><table class="tbl">
-      <thead><tr><th>Receipt</th><th>Student</th><th>Type</th><th class="num">Amount</th><th>Method</th><th>Date</th><th>Ref</th><th>By</th><th class="num">Actions</th></tr></thead>
-      <tbody>${d.recent.map(p => `<tr>
-        <td><span class="badge b-slate">${esc(p.receipt_no)}</span></td>
-        <td><b>${esc(p.first_name + " " + p.last_name)}</b></td>
-        <td><span class="badge ${typeBadge(p.payment_type_category)}">${esc(p.payment_type_name || "General")}</span></td>
-        <td class="num"><b style="color:var(--green-dark)">${fmtMoney(p.amount)}</b></td>
-        <td><span class="badge ${p.method === "M-PESA" ? "b-green" : p.method === "Cash" ? "b-amber" : "b-blue"}">${esc(p.method || "—")}</span></td>
-        <td>${fmtDate(p.payment_date)}</td><td><small>${esc(p.reference || "—")}</small></td>
-        <td><small>${esc(p.recorded_by || "—")}</small></td>
-        <td><div class="actions">
-          ${acctBtn(`<button class="ic-btn" title="Edit payment" onclick="paymentForm(${p.student_id}, ${p.id})"><svg><use href="#i-edit"/></svg></button>`)}
-          <button class="ic-btn" title="View &amp; print receipt" onclick="showReceipt(${p.id})"><svg><use href="#i-receipt"/></svg></button>
-        </div></td>
-      </tr>`).join("")}
+      <thead><tr><th>Receipt</th><th>Student</th><th>Applied to</th><th class="num">Amount</th><th>Method</th><th>Date</th><th>Ref</th><th>By</th><th class="num">Actions</th></tr></thead>
+      <tbody>${groupReceipts(d.recent).map(g => `
+        <tr>
+          <td><span class="badge b-slate">${esc(g.receipt_no)}</span>${g.parts > 1 ? ' <span class="badge b-blue">split ×' + g.parts + '</span>' : ""}</td>
+          <td><b>${esc(g.student_name)}</b></td>
+          <td><small>${esc(g.summary)}</small></td>
+          <td class="num"><b style="color:var(--green-dark)">${fmtMoney(g.amount)}</b></td>
+          <td><span class="badge ${g.method === "M-PESA" ? "b-green" : g.method === "Cash" ? "b-amber" : "b-blue"}">${esc(g.method || "—")}</span></td>
+          <td>${fmtDate(g.date)}</td><td><small>${esc(g.reference || "—")}</small></td>
+          <td><small>${esc(g.recorded_by || "—")}</small></td>
+          <td><div class="actions">
+            ${acctBtn(`<button class="ic-btn" title="Edit payment" onclick="paymentForm(${g.student_id}, ${g.id})"><svg><use href="#i-edit"/></svg></button>`)}
+            <button class="ic-btn" title="View &amp; print receipt" onclick="showReceipt(${g.id})"><svg><use href="#i-receipt"/></svg></button>
+          </div></td>
+        </tr>`).join("") || '<tr><td colspan="9" style="text-align:center;color:var(--muted)">No payments yet</td></tr>'}
       </tbody></table></div>
   </div>`;
 
@@ -1751,18 +1798,43 @@ async function view_finance(el) {
     openView("finance");
   });
 }
+function groupReceipts(payments) {
+  // group payment rows by receipt number; returns one entry per receipt with total + summary
+  const map = {};
+  (payments || []).forEach(p => {
+    if (!map[p.receipt_no]) map[p.receipt_no] = { receipt_no: p.receipt_no, id: p.id, student_id: p.student_id,
+      student_name: p.first_name + " " + p.last_name, amount: 0, parts: 0, method: p.method,
+      date: p.payment_date, reference: p.reference, recorded_by: p.recorded_by, types: new Set() };
+    const g = map[p.receipt_no];
+    g.amount += p.amount; g.parts += 1;
+    g.types.add(p.payment_type_name || "General");
+    g.id = Math.min(g.id, p.id);
+  });
+  return Object.values(map).map(g => ({
+    ...g,
+    summary: g.parts > 1
+      ? [...g.types].join(" + ") + " · " + g.parts + " parts"
+      : [...g.types][0] || "General",
+  })).sort((a, b) => (b.date + "").localeCompare(a.date + ""));
+}
+
 function finRows(students) {
   return students.map(s => {
     const bal = s.balance || 0;
+    const pct = (s.billed || 0) > 0 ? Math.round(s.paid / s.billed * 100) : 0;
     const status = bal <= 0 ? '<span class="badge b-green">Cleared</span>'
-      : bal >= (s.billed || 0) * 0.5 ? '<span class="badge b-red">Critical</span>'
-      : '<span class="badge b-amber">Partial</span>';
+      : pct >= 60 ? '<span class="badge b-amber">Partial</span>'
+      : '<span class="badge b-red">Critical</span>';
     return `<tr>
       <td>${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}<b style="margin-left:8px">${esc(s.first_name + " " + s.last_name)}</b></td>
       <td>${esc(s.class_name || "—")}</td>
       <td class="num">${fmtMoney(s.billed)}</td>
       <td class="num" style="color:var(--green-dark)">${fmtMoney(s.paid)}</td>
       <td class="num"><b style="color:${bal > 0 ? "var(--red)" : "var(--green-dark)"}">${fmtMoney(bal)}</b></td>
+      <td style="min-width:150px">
+        <div class="progress ${pct >= 100 ? "" : pct >= 60 ? "amber" : "red"}" style="margin-bottom:4px"><div style="width:${Math.min(100, pct)}%"></div></div>
+        <small style="color:var(--muted)">${pct}% paid</small>
+      </td>
       <td>${status}</td>
       <td>${s.payments}</td>
       ${acctBtn(`<td><div class="actions">
@@ -1844,9 +1916,10 @@ async function paymentForm(studentId, paymentId) {
   const activeTypes = pts.filter(t => t.active);
   let st = students.find(x => x.id === studentId);
   let p = null;
+  let isSplit = false;
   if (paymentId) {
     const r = await api("/api/finance/receipt/" + paymentId);
-    st = r.student; p = r.payment;
+    st = r.student; p = r.payment; isSplit = !!r.parts && r.parts.length > 1;
   }
   const typeOptions = activeTypes.map(t =>
     `<option value="${t.id}" ${p && p.payment_type_id === t.id ? "selected" : ""}>${esc(t.name)}${t.default_amount ? " — " + fmtMoney(t.default_amount) : ""}</option>`).join("");
@@ -1857,7 +1930,14 @@ async function paymentForm(studentId, paymentId) {
     <div class="kpi" style="margin-bottom:16px"><div class="k">Student</div>
       <div class="v" style="font-size:16px">${esc(st.first_name + " " + st.last_name)} <small style="color:var(--muted)">${esc(st.admission_no)} · ${esc(st.class_name || "")}</small></div></div>
     <div class="form-grid">
-      <div><label>Payment type</label><select id="p-type" class="input">
+      <div class="full">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="p-split" style="accent-color:var(--green);width:16px;height:16px" ${paymentId ? (isSplit ? "checked disabled" : "disabled") : "checked"}>
+          <span><b>Split automatically across terms &amp; items</b><br>
+          <small style="font-weight:400;color:var(--muted)">One payment is applied to the oldest outstanding fees first — transport, then tuition — with a receipt showing the breakdown.</small></span>
+        </label>
+      </div>
+      <div id="p-type-wrap"><label>Payment type</label><select id="p-type" class="input" ${paymentId ? "disabled" : ""}>
         <option value="">— general / unclassified —</option>${typeOptions}</select></div>
       <div><label>Amount (${esc(state.settings.currency || "KSh")}) *</label><input id="p-amount" type="number" min="1" step="100" value="${p ? p.amount : ""}" placeholder="e.g. 10000"></div>
       <div><label>Payment Method</label><select id="p-method">
@@ -1873,15 +1953,26 @@ async function paymentForm(studentId, paymentId) {
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" id="p-save">${paymentId ? "Save Changes" : "Record Payment"}</button>
   </div>`);
+  // toggle: when splitting, the payment type is chosen automatically
+  const splitChk = $("#p-split");
+  const typeWrap = $("#p-type-wrap");
+  function syncSplitUI() {
+    typeWrap.style.opacity = splitChk.checked ? ".45" : "1";
+    const t = $("#p-type");
+    if (t) t.disabled = splitChk.checked;
+  }
+  if (splitChk && !paymentId) splitChk.addEventListener("change", syncSplitUI);
+  syncSplitUI();
   $("#p-type").addEventListener("change", () => {
     const t = activeTypes.find(x => x.id == $("#p-type").value);
     if (t && t.default_amount) $("#p-amount").value = t.default_amount;
   });
   $("#p-save").addEventListener("click", async () => {
-    const body = { student_id: st.id, payment_type_id: $("#p-type").value || null,
+    const autoSplit = $("#p-split").checked;
+    const body = { student_id: st.id, payment_type_id: autoSplit ? null : ($("#p-type").value || null),
       amount: $("#p-amount").value, method: $("#p-method").value, payment_date: $("#p-date").value,
       reference: $("#p-ref").value.trim(), notes: $("#p-notes").value.trim(),
-      term: $("#p-term").value };
+      term: $("#p-term").value, auto_split: autoSplit };
     if (!body.amount || Number(body.amount) <= 0) { toast("Enter a valid amount", "err"); return; }
     try {
       if (paymentId) {
@@ -1890,7 +1981,7 @@ async function paymentForm(studentId, paymentId) {
         closeModal(); openView("finance");
       } else {
         const r = await api("/api/finance/payments", { method: "POST", body });
-        toast("Payment recorded — Receipt " + r.receipt_no);
+        toast(r.split ? "Payment recorded & split across " + r.parts + " item" + (r.parts > 1 ? "s" : "") + " — Receipt " + r.receipt_no : "Payment recorded — Receipt " + r.receipt_no);
         closeModal();
         openView("finance");
         showReceipt(r.id);
@@ -1910,6 +2001,27 @@ async function statement(studentId) {
       <div class="kpi"><div class="k">Total paid</div><div class="v" style="color:var(--green-dark)">${fmtMoney(d.total_paid)}</div></div>
       <div class="kpi"><div class="k">Balance</div><div class="v" style="color:${d.balance > 0 ? "var(--red)" : "var(--green-dark)"}">${fmtMoney(d.balance)}</div></div>
     </div>
+    <div class="section-title">Balance tracker</div>
+    ${(() => {
+      const terms = ["Term 1", "Term 2", "Term 3"];
+      const rows = terms.map(t => {
+        const billed = d.billing.filter(b => b.term === t).reduce((a, b) => a + b.amount, 0);
+        const paid = d.payments.filter(p => p.term === t).reduce((a, p) => a + p.amount, 0);
+        const pct = billed ? Math.round(paid / billed * 100) : 0;
+        return { t, billed, paid, bal: billed - paid, pct };
+      }).filter(r => r.billed > 0);
+      return `<table class="tbl" style="min-width:0;margin-bottom:6px">
+        <thead><tr><th>Term</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Balance</th><th style="min-width:120px">Progress</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td><b>${esc(r.t)}</b></td>
+          <td class="num">${fmtMoney(r.billed)}</td>
+          <td class="num" style="color:var(--green-dark)">${fmtMoney(r.paid)}</td>
+          <td class="num"><b style="color:${r.bal > 0 ? "var(--red)" : "var(--green-dark)"}">${fmtMoney(Math.max(0, r.bal))}</b></td>
+          <td><div class="progress ${r.pct >= 100 ? "" : r.pct >= 60 ? "amber" : "red"}"><div style="width:${Math.min(100, r.pct)}%"></div></div>
+              <small style="color:var(--muted)">${r.pct}% paid</small></td>
+        </tr>`).join("") || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">No billing set</td></tr>'}
+        </tbody></table>`;
+    })()}
     <div class="section-title">Billing (${esc(d.class ? d.class.name : "")})</div>
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th>Term</th><th>Item</th><th>Year</th><th class="num">Amount</th></tr></thead>
@@ -2073,9 +2185,11 @@ async function viewAssignments(presetRouteId) {
   const sel = presetRouteId || prev || (active ? active.id : "");
   $("#tp-body").innerHTML = `
   <div class="toolbar">
-    <select class="input" id="tp-route" style="min-width:240px">
+    <select class="input" id="tp-route" style="min-width:230px">
       ${routes.map(r => `<option value="${r.id}" ${String(r.id) === String(sel) ? "selected" : ""}>${esc(r.name)} (${r.assigned} riders)</option>`).join("")}
     </select>
+    <div class="search-wrap"><svg><use href="#i-search"/></svg>
+      <input class="input" id="tp-search" placeholder="Search student name or admission no…" style="min-width:220px" autocomplete="off"></div>
     <span class="badge b-blue" id="tp-count">0 riders</span>
     <div class="grow"></div>
     ${adminBtn(`<button class="btn btn-primary" id="tp-save"><svg><use href="#i-download"/></svg> Save Assignments</button>`)}
@@ -2086,28 +2200,41 @@ async function viewAssignments(presetRouteId) {
   async function loadAssignBody() {
     const rid = $("#tp-route").value;
     const rows = await api("/api/transport/assignments?route_id=" + rid);
-    const byClass = {};
-    rows.forEach(r => { (byClass[r.class_name] = byClass[r.class_name] || []).push(r); });
-    $("#tp-assign-body").innerHTML = `
-      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Tick students who ride this route. Students belong to exactly one route at a time.</p>
-      ${Object.keys(byClass).sort().map(cls => `
-        <div class="section-title">${esc(cls)}</div>
-        <div class="grid-3" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
-          ${byClass[cls].map(r => `
-            <label class="stu-check-row ${r.assigned ? "on" : ""}">
-              <input type="checkbox" class="assign-check" data-st="${r.student_id}" ${r.assigned ? "checked" : ""}>
-              <div><b style="font-size:13px">${esc(r.name)}</b><br><small style="color:var(--muted)">${esc(r.admission_no)}</small></div>
-            </label>`).join("")}
-        </div>`).join("")}`;
-    updateCount();
-    $$(".assign-check").forEach(c => c.addEventListener("change", () => {
-      c.closest(".stu-check-row").classList.toggle("on", c.checked);
+    // keep the checked state in a Set so search re-renders never lose selections
+    const checked = new Set(rows.filter(r => r.assigned).map(r => r.student_id));
+
+    function renderList(q) {
+      const ql = (q || "").trim().toLowerCase();
+      const filtered = ql ? rows.filter(r =>
+        (r.name + " " + r.admission_no + " " + (r.class_name || "")).toLowerCase().includes(ql)) : rows;
+      const byClass = {};
+      filtered.forEach(r => { (byClass[r.class_name] = byClass[r.class_name] || []).push(r); });
+      $("#tp-assign-body").innerHTML = `
+        <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Tick students who ride this route. Students belong to exactly one route at a time.${ql ? ` Showing <b>${filtered.length}</b> match${filtered.length === 1 ? "" : "es"}.` : ""}</p>
+        ${Object.keys(byClass).sort().map(cls => `
+          <div class="section-title">${esc(cls)}</div>
+          <div class="grid-3" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
+            ${byClass[cls].map(r => `
+              <label class="stu-check-row ${checked.has(r.student_id) ? "on" : ""}">
+                <input type="checkbox" class="assign-check" data-st="${r.student_id}" ${checked.has(r.student_id) ? "checked" : ""}>
+                <div><b style="font-size:13px">${esc(r.name)}</b><br><small style="color:var(--muted)">${esc(r.admission_no)} · ${esc(r.class_name || "")}</small></div>
+              </label>`).join("")}
+          </div>`).join("")}
+        ${filtered.length === 0 ? '<div class="empty">No students match your search</div>' : ""}`;
       updateCount();
-    }));
-    function updateCount() {
-      const n = $$(".assign-check:checked").length;
-      $("#tp-count").textContent = n + " riders";
+      $$(".assign-check").forEach(c => c.addEventListener("change", () => {
+        const sid = Number(c.dataset.st);
+        if (c.checked) checked.add(sid); else checked.delete(sid);
+        c.closest(".stu-check-row").classList.toggle("on", c.checked);
+        updateCount();
+      }));
     }
+    function updateCount() {
+      $("#tp-count").textContent = checked.size + " riders";
+    }
+    renderList("");
+    const search = $("#tp-search");
+    if (search) search.addEventListener("input", e => renderList(e.target.value));
   }
   const saveBtn = $("#tp-save");
   if (saveBtn) saveBtn.addEventListener("click", async () => {
@@ -2402,9 +2529,20 @@ async function showReceipt(pid) {
         </tr>
         <tr>
           <td class="lbl">Amount paid</td><td class="val amt">${fmtMoney(p.amount)}</td>
-          <td class="lbl">Term</td><td class="val">${esc(p.term || "—")} ${esc(d.settings.academic_year || "")}</td>
+          <td class="lbl">Term</td><td class="val">${esc(p.term || "—")} ${esc(d.settings.academic_year || "")}${p.split ? ' <span class="badge b-blue">Auto-split</span>' : ""}</td>
         </tr>
       </table>
+      ${d.parts && d.parts.length > 1 ? `
+      <div class="r-words" style="text-align:left;border:1px solid #cbd5e1;border-radius:6px;padding:8px 10px">
+        <b style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--slate)">Payment breakdown</b>
+        <table style="width:100%;margin-top:5px;border-collapse:collapse">
+          ${d.parts.map(pt => `<tr style="border-bottom:1px dashed #e2e8f0">
+            <td style="padding:3px 0;font-size:11.5px">${esc(pt.payment_type_name)} — ${esc(pt.term)}</td>
+            <td style="text-align:right;font-weight:700;font-size:11.5px">${fmtMoney(pt.amount)}</td></tr>`).join("")}
+          <tr><td style="padding-top:5px;font-weight:700;font-size:11.5px">Total paid</td>
+            <td style="text-align:right;font-weight:800;font-size:12px;color:var(--green-dark);padding-top:5px">${fmtMoney(p.amount)}</td></tr>
+        </table>
+      </div>` : ""}
       <div class="r-words">Amount in words: <b>${esc(amountInWords(p.amount))}</b></div>
       <div class="r-balance">
         <div><span>Total paid to date</span><b>${fmtMoney(d.paid_to_date)}</b></div>
@@ -2881,6 +3019,537 @@ async function returnBook(issueId) {
 }
 
 /* ============================================================
+   EVENTS — school calendar
+   ============================================================ */
+const EV_CATS = ["Academic", "Sports", "Meeting", "Holiday", "Exam", "Creative", "General"];
+const evCatBadge = (c) => ({ Academic: "b-blue", Sports: "b-green", Meeting: "b-violet",
+  Holiday: "b-amber", Exam: "b-red", Creative: "b-violet", General: "b-slate" }[c] || "b-slate");
+
+async function view_events(el, params) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading events…</p></div>`;
+  const events = await api("/api/events");
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = events.filter(e => e.upcoming);
+  const past = events.filter(e => !e.upcoming);
+  el.innerHTML = `
+  <div class="toolbar">
+    <p style="color:var(--muted)">${upcoming.length} upcoming · ${past.length} past</p>
+    <div class="grow"></div>
+    ${adminBtn(`<button class="btn btn-outline" onclick="eventForm()"><svg><use href="#i-plus"/></svg> Add Event</button>`)}
+  </div>
+  <div class="tab-row">
+    <button class="tab-btn active" id="ev-tab-up">Upcoming</button>
+    <button class="tab-btn" id="ev-tab-past">Past</button>
+  </div>
+  <div id="ev-body"></div>`;
+  const render = (list) => {
+    const grouped = {};
+    list.forEach(e => { const m = fmtDate(e.event_date).split(" ").slice(0, 2).join(" "); (grouped[m] = grouped[m] || []).push(e); });
+    $("#ev-body").innerHTML = Object.keys(grouped).map(month => `
+      <div class="section-title">${esc(month)}</div>
+      ${grouped[month].map(e => `
+        <div class="card" style="margin-bottom:10px;padding:14px 18px">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <div style="width:46px;flex:none;text-align:center;background:var(--green-100);color:var(--green-dark);border-radius:10px;padding:6px 2px">
+              <b style="font-size:15px">${fmtDate(e.event_date).split(" ")[0]}</b>
+              <small style="display:block;font-size:9.5px">${fmtDate(e.event_date).split(" ")[1]}</small>
+            </div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <b style="font-size:14px">${esc(e.title)}</b>
+                <span class="badge ${evCatBadge(e.category)}">${esc(e.category)}</span>
+                <span class="badge b-slate">${esc(e.audience)}</span>
+              </div>
+              ${e.description ? `<p style="font-size:12.5px;color:var(--slate);margin-top:4px">${esc(e.description)}</p>` : ""}
+              <small style="color:var(--muted)">Added by ${esc(e.created_by || "Admin")}</small>
+            </div>
+            ${adminBtn(`<div style="display:flex;gap:6px">
+              <button class="ic-btn" title="Edit" onclick="eventForm(${e.id})"><svg><use href="#i-edit"/></svg></button>
+              <button class="ic-btn" title="Delete" onclick="deleteEvent(${e.id},'${esc(e.title)}')"><svg><use href="#i-close"/></svg></button>
+            </div>`)}
+          </div>
+        </div>`).join("") || '<div class="empty">No events here yet</div>'}
+    `).join("");
+  };
+  $("#ev-tab-up").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#ev-tab-up").classList.add("active"); render(upcoming); });
+  $("#ev-tab-past").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#ev-tab-past").classList.add("active"); render(past); });
+  render(params.tab === "past" ? past : upcoming);
+}
+
+async function eventForm(id) {
+  const all = id ? await api("/api/events") : null;
+  let e = { category: "General", audience: "All", event_date: new Date().toISOString().slice(0, 10) };
+  if (id) e = all.find(x => x.id === id) || e;
+  modal(`
+  <div class="modal-head"><h3>${id ? "Edit Event" : "Add Event"}</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="full"><label>Title *</label><input id="f-title" class="input" value="${esc(e.title || "")}" placeholder="e.g. Prize Giving Day"></div>
+    <div><label>Date *</label><input id="f-date" class="input" type="date" value="${esc(e.event_date || "")}"></div>
+    <div><label>Category</label><select id="f-cat" class="input">
+      ${EV_CATS.map(c => `<option ${e.category === c ? "selected" : ""}>${c}</option>`).join("")}
+    </select></div>
+    <div><label>Audience</label><select id="f-aud" class="input">
+      ${["All", "Parents", "Teachers", "Students"].map(a => `<option ${e.audience === a ? "selected" : ""}>${a}</option>`).join("")}
+    </select></div>
+    <div class="full"><label>Description</label><textarea id="f-desc" class="input" rows="3" placeholder="Details…">${esc(e.description || "")}</textarea></div>
+  </div></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="ev-save">${id ? "Save Changes" : "Add Event"}</button>
+  </div>`);
+  $("#ev-save").addEventListener("click", async () => {
+    const title = $("#f-title").value.trim(), date = $("#f-date").value;
+    if (!title || !date) { toast("Title and date required", "err"); return; }
+    const body = { title, description: $("#f-desc").value.trim(), event_date: date, category: $("#f-cat").value, audience: $("#f-aud").value };
+    try {
+      if (id) { await api("/api/events/" + id, { method: "PUT", body }); toast("Event updated"); }
+      else { await api("/api/events", { method: "POST", body }); toast("Event added"); }
+      closeModal(); openView("events");
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function deleteEvent(id, title) {
+  modal(`
+  <div class="modal-head"><h3>Remove event</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><p style="font-size:13.5px">Remove <b>${esc(title)}</b> from the school calendar?</p></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-danger" id="del-ev">Remove</button>
+  </div>`);
+  $("#del-ev").addEventListener("click", async () => {
+    try { await api("/api/events/" + id, { method: "DELETE" }); toast("Event removed"); closeModal(); openView("events"); }
+    catch (err) { toast(err.message, "err"); }
+  });
+}
+
+/* ============================================================
+   DISCIPLINE & CONDUCT
+   ============================================================ */
+const MERIT_CATS = ["Academic Excellence", "Good Conduct", "Community Service", "Sports Achievement",
+  "Cleanliness", "Punctuality", "Leadership", "Honesty"];
+const DEMERIT_CATS = ["Late Coming", "Noise Making", "Truancy", "Fighting", "Dishonesty",
+  "Vandalism", "Mobile Phone Use", "Incomplete Homework", "Uniform Violation"];
+const CONDUCT_STYLES = { "Excellent": "b-green", "Good": "b-blue", "Satisfactory": "b-amber", "Needs Improvement": "b-red" };
+
+async function view_discipline(el, params) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading…</p></div>`;
+  const sum = await api("/api/discipline/summary");
+  el.innerHTML = `
+  <div class="stat-grid">
+    ${statCard("green", "i-shield", sum.merits, "Merits this term", "positive recognition")}
+    ${statCard("red", "i-shield", sum.demerits, "Demerits this term", "areas to improve")}
+    ${statCard("amber", "i-calendar", sum.today, "Recorded today", "latest entries")}
+    ${statCard("blue", "i-users", sum.top[0] ? sum.top[0].first_name + " " + sum.top[0].last_name : "—", "Best conduct", sum.top[0] ? sum.top[0].class_name + " · net " + (sum.top[0].merits - sum.top[0].demerits) : "—")}
+  </div>
+  <div class="tab-row">
+    <button class="tab-btn active" id="dc-tab-rec">Records</button>
+    <button class="tab-btn" id="dc-tab-top">Conduct summary</button>
+  </div>
+  <div id="dc-body"></div>`;
+  const showRecords = () => renderDisciplineRecords();
+  const showTop = () => {
+    $("#dc-body").innerHTML = `
+    <div class="card"><div class="card-head"><h3>Students with the best conduct</h3><p>Net merits this term</p></div>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Student</th><th>Class</th><th class="num">Merits</th><th class="num">Demerits</th><th class="num">Net</th><th>Rating</th></tr></thead>
+        <tbody>${sum.top.map((t, i) => `<tr>
+          <td><b>${i + 1}. ${esc(t.first_name + " " + t.last_name)}</b><br><small style="color:var(--muted)">${esc(t.admission_no)}</small></td>
+          <td>${esc(t.class_name || "—")}</td>
+          <td class="num" style="color:var(--green-dark)">${t.merits}</td>
+          <td class="num" style="color:var(--red)">${t.demerits}</td>
+          <td class="num"><b>${t.merits - t.demerits}</b></td>
+          <td><span class="badge ${CONDUCT_STYLES["Good"]}">${esc("Good")}</span></td>
+        </tr>`).join("") || '<tr><td colspan="6" style="text-align:center;color:var(--muted)">No conduct records yet</td></tr>'}
+        </tbody></table></div></div>`;
+  };
+  $("#dc-tab-rec").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#dc-tab-rec").classList.add("active"); showRecords(); });
+  $("#dc-tab-top").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#dc-tab-top").classList.add("active"); showTop(); });
+  showRecords();
+}
+
+async function renderDisciplineRecords() {
+  const records = await api("/api/discipline");
+  const clsBadge = (t) => t === "Merit" ? '<span class="badge b-green">Merit</span>' : '<span class="badge b-red">Demerit</span>';
+  $("#dc-body").innerHTML = `
+  <div class="toolbar">
+    <select class="input" id="dc-type" style="min-width:140px"><option value="">All types</option><option>Merit</option><option>Demerit</option></select>
+    <div class="search-wrap"><svg><use href="#i-search"/></svg><input class="input" id="dc-q" placeholder="Search student or category…"></div>
+    <div class="grow"></div>
+    ${can("admin", "teacher") ? `<button class="btn btn-primary" onclick="conductForm()"><svg><use href="#i-plus"/></svg> Record Merit / Demerit</button>` : ""}
+  </div>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Type</th><th>Category</th><th>Description</th><th>By</th>${adminBtn('<th class="num">Action</th>')}</tr></thead>
+    <tbody id="dc-body2">
+      ${records.map(r => `
+        <tr>
+          <td>${fmtDate(r.record_date)}</td>
+          <td><b>${esc(r.student_name)}</b><br><small style="color:var(--muted)">${esc(r.admission_no)}</small></td>
+          <td>${esc(r.class_name || "—")}</td>
+          <td>${clsBadge(r.record_type)}</td>
+          <td>${esc(r.category || "—")}</td>
+          <td><small>${esc(r.description || "—")}</small></td>
+          <td><small>${esc(r.recorded_by || "—")}</small></td>
+          ${adminBtn(`<td><div class="actions"><button class="ic-btn" title="Delete" onclick="deleteConduct(${r.id})"><svg><use href="#i-close"/></svg></button></div></td>`)}
+        </tr>`).join("")}
+    </tbody></table></div>
+  ${records.length === 0 ? '<div class="empty">No conduct records yet</div>' : ""}`;
+  const filter = () => {
+    const t = $("#dc-type").value, q = $("#dc-q").value.toLowerCase();
+    const rows = records.filter(r =>
+      (!t || r.record_type === t) &&
+      (!q || (r.student_name + " " + r.admission_no + " " + (r.category || "")).toLowerCase().includes(q)));
+    $("#dc-body2").innerHTML = rows.map(r => `
+      <tr>
+        <td>${fmtDate(r.record_date)}</td>
+        <td><b>${esc(r.student_name)}</b><br><small style="color:var(--muted)">${esc(r.admission_no)}</small></td>
+        <td>${esc(r.class_name || "—")}</td>
+        <td>${clsBadge(r.record_type)}</td>
+        <td>${esc(r.category || "—")}</td>
+        <td><small>${esc(r.description || "—")}</small></td>
+        <td><small>${esc(r.recorded_by || "—")}</small></td>
+        ${adminBtn(`<td><div class="actions"><button class="ic-btn" title="Delete" onclick="deleteConduct(${r.id})"><svg><use href="#i-close"/></svg></button></div></td>`)}
+      </tr>`).join("");
+  };
+  $("#dc-type").addEventListener("change", filter);
+  $("#dc-q").addEventListener("input", filter);
+}
+
+async function conductForm() {
+  const students = await api("/api/students");
+  const active = students.filter(s => s.status === "Active");
+  modal(`
+  <div class="modal-head"><h3>Record Merit / Demerit</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div><label>Type</label><select id="cd-type" class="input"><option>Merit</option><option>Demerit</option></select></div>
+    <div><label>Date</label><input id="cd-date" class="input" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+    <div class="full">
+      <label>Student * <small style="font-weight:500;color:var(--muted)">search by name or admission number</small></label>
+      <div class="stu-picker">
+        <div class="search-wrap"><svg><use href="#i-search"/></svg>
+          <input id="cd-search" class="input" placeholder="Type a name or admission no…" autocomplete="off"></div>
+        <input type="hidden" id="cd-student">
+        <div class="stu-picker-results" id="cd-results"></div>
+      </div>
+      <div class="picked-chip" id="cd-picked" style="display:none"></div>
+    </div>
+    <div class="full"><label>Category</label><select id="cd-cat" class="input">${MERIT_CATS.map(c => `<option>${c}</option>`).join("")}</select></div>
+    <div class="full"><label>Description</label><textarea id="cd-desc" class="input" rows="2" placeholder="What happened?"></textarea></div>
+  </div></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="cd-save"><svg><use href="#i-shield"/></svg> Save Record</button>
+  </div>`);
+  // searchable picker (same pattern as library issue)
+  let selSid = null;
+  function clearSel() {
+    selSid = null;
+    $("#cd-student").value = "";
+    $("#cd-picked").style.display = "none";
+    $("#cd-search").value = "";
+    $("#cd-search").focus();
+  }
+  function renderResults(q) {
+    const box = $("#cd-results");
+    const ql = (q || "").trim().toLowerCase();
+    if (!ql) { box.classList.remove("open"); box.innerHTML = ""; return; }
+    const matches = active.filter(s =>
+      (s.first_name + " " + (s.middle_name || "") + " " + s.last_name + " " + (s.admission_no || "")).toLowerCase().includes(ql)
+    ).slice(0, 12);
+    if (!matches.length) {
+      box.innerHTML = '<div class="stu-picker-empty">No students found — check the name or admission number</div>';
+      box.classList.add("open"); return;
+    }
+    box.innerHTML = matches.map(s => `
+      <div class="stu-picker-item" data-sid="${s.id}">
+        ${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}
+        <div><b>${esc(s.first_name + " " + s.last_name)}</b>
+          <small>${esc(s.admission_no)} · ${esc(s.class_name || "unplaced")}</small></div>
+      </div>`).join("");
+    box.classList.add("open");
+  }
+  $("#cd-search").addEventListener("input", e => renderResults(e.target.value));
+  $("#cd-search").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); const f = $("#cd-results .stu-picker-item"); if (f) f.click(); }
+  });
+  $("#cd-search").addEventListener("blur", () => setTimeout(() => { const b = $("#cd-results"); if (b) b.classList.remove("open"); }, 180));
+  $("#cd-results").addEventListener("click", e => {
+    const item = e.target.closest(".stu-picker-item");
+    if (!item) return;
+    selSid = Number(item.dataset.sid);
+    const s = active.find(x => x.id === selSid);
+    if (!s) return;
+    $("#cd-student").value = selSid;
+    const chip = $("#cd-picked");
+    chip.style.display = "flex";
+    chip.innerHTML = `${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}
+      <div><b>${esc(s.first_name + " " + s.last_name)}</b>
+      <small style="display:block;color:var(--muted)">${esc(s.admission_no)} · ${esc(s.class_name || "unplaced")}</small></div>
+      <span class="clear" title="Clear">✕</span>`;
+    chip.querySelector(".clear").addEventListener("click", clearSel);
+    $("#cd-search").value = "";
+    const b = $("#cd-results"); b.classList.remove("open"); b.innerHTML = "";
+  });
+  // category list follows the type
+  $("#cd-type").addEventListener("change", e => {
+    const cats = e.target.value === "Merit" ? MERIT_CATS : DEMERIT_CATS;
+    $("#cd-cat").innerHTML = cats.map(c => `<option>${c}</option>`).join("");
+  });
+  $("#cd-save").addEventListener("click", async () => {
+    const sid = $("#cd-student").value;
+    if (!sid) { toast("Search and select a student", "err"); return; }
+    try {
+      await api("/api/discipline", { method: "POST", body: {
+        student_id: Number(sid), record_type: $("#cd-type").value,
+        category: $("#cd-cat").value, description: $("#cd-desc").value.trim(), record_date: $("#cd-date").value } });
+      toast($("#cd-type").value + " recorded");
+      closeModal(); openView("discipline");
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function deleteConduct(id) {
+  try { await api("/api/discipline/" + id, { method: "DELETE" }); toast("Record removed"); openView("discipline"); }
+  catch (err) { toast(err.message, "err"); }
+}
+
+/* ============================================================
+   GUARDIAN — school events (read-only)
+   ============================================================ */
+async function view_gevents(el) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading…</p></div>`;
+  const events = await api("/api/events");
+  const upcoming = events.filter(e => e.upcoming);
+  el.innerHTML = `
+  <div class="card">
+    <div class="card-head"><h3>Upcoming school events</h3><p>From ${esc(state.settings.school_name || "the school")}</p></div>
+    ${upcoming.map(e => `
+      <div style="display:flex;gap:13px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #f1f5f9">
+        <div style="width:46px;flex:none;text-align:center;background:var(--green-100);color:var(--green-dark);border-radius:10px;padding:6px 2px">
+          <b style="font-size:15px">${fmtDate(e.event_date).split(" ")[0]}</b>
+          <small style="display:block;font-size:9.5px">${fmtDate(e.event_date).split(" ")[1]}</small>
+        </div>
+        <div>
+          <b style="font-size:14px">${esc(e.title)}</b>
+          <span class="badge ${evCatBadge(e.category)}" style="margin-left:6px">${esc(e.category)}</span>
+          ${e.description ? `<p style="font-size:12.5px;color:var(--slate);margin-top:3px">${esc(e.description)}</p>` : ""}
+        </div>
+      </div>`).join("") || '<p style="color:var(--muted)">No upcoming events</p>'}
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="card-head"><h3>Past events</h3></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${events.filter(e => !e.upcoming).map(e => `<span class="badge b-slate">${esc(e.title)} · ${fmtDate(e.event_date)}</span>`).join("") || "—"}
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   ID CARDS — professional student identification cards
+   ============================================================ */
+function barcodeSvg(text) {
+  // deterministic, professional-looking Code-128-style bars from the card no.
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let seed = h >>> 0;
+  let bars = "";
+  let x = 0;
+  const W = 210, H = 34;
+  const n = 42;
+  for (let i = 0; i < n; i++) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    const w = 1 + (seed % 3);
+    if (i % 2 === 0) bars += `<rect x="${x}" y="0" width="${w}" height="${H}" fill="#0f172a"/>`;
+    x += w + 1;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" style="height:34px;width:210px">${bars}</svg>`;
+}
+function monogramOf(name) {
+  return String(name || "S").split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
+}
+function idcardFrontHtml(d) {
+  const s = d.settings || state.settings || {};
+  const full = (d.first_name + " " + (d.middle_name || "") + " " + d.last_name).replace(/\s+/g, " ").trim().toUpperCase();
+  const logo = s.school_logo
+    ? `<img src="${esc(s.school_logo)}" alt="">`
+    : `<div class="idc-crest">${esc(monogramOf(s.school_name || "School"))}</div>`;
+  const photo = d.profile_pic
+    ? `<img src="${esc(d.profile_pic)}" alt="">`
+    : `<div class="idc-photo-ph">${esc(initials(d.first_name + " " + d.last_name))}</div>`;
+  const row = (k, v) => `<tr><td class="k">${k}</td><td class="v">${esc(v || "—")}</td></tr>`;
+  return `
+  <div class="idcard idc-front">
+    <div class="idc-head">
+      <div class="idc-logo">${logo}</div>
+      <div class="idc-org">
+        <b>${esc((s.school_name || "SCHOOL").toUpperCase())}</b>
+        <small>${esc(s.school_motto || "")}</small>
+        <small>${esc(s.school_address || "")} · ${esc(s.school_phone || "")}</small>
+      </div>
+    </div>
+    <div class="idc-body">
+      <div class="idc-photo">${photo}</div>
+      <div class="idc-details">
+        <div class="idc-name">${esc(full)}</div>
+        <table class="idc-table">
+          ${row("ADM NO", d.admission_no)}
+          ${row("CLASS", d.class_name)}
+          ${row("HOUSE", d.house)}
+          ${row("BLOOD GROUP", d.blood_group)}
+          ${row("GENDER", d.gender)}
+          ${row("D.O.B", fmtDate(d.dob))}
+        </table>
+      </div>
+    </div>
+    <div class="idc-foot">
+      <div class="idc-bcode">
+        <div class="idc-bars">${barcodeSvg(d.card_no)}</div>
+        <div class="idc-cardno">${esc(d.card_no)}</div>
+      </div>
+      <div class="idc-sign">
+        <div class="sig-line"></div>
+        <small>Principal</small>
+      </div>
+      <div class="idc-valid">
+        <small>VALID</small>
+        <b>${esc((d.valid_until || "").split("-")[0])}</b>
+      </div>
+    </div>
+    <div class="idc-strip">STUDENT IDENTIFICATION CARD</div>
+  </div>`;
+}
+function idcardBackHtml(d) {
+  const s = d.settings || state.settings || {};
+  return `
+  <div class="idcard idc-back">
+    <div class="idc-head">
+      <div class="idc-logo">
+        ${s.school_logo ? `<img src="${esc(s.school_logo)}" alt="">` : `<div class="idc-crest">${esc(monogramOf(s.school_name || "School"))}</div>`}
+      </div>
+      <div class="idc-org"><b>${esc((s.school_name || "SCHOOL").toUpperCase())}</b></div>
+    </div>
+    <div class="idc-back-body">
+      <div class="idc-bk-row"><span>GUARDIAN</span><b>${esc((d.parent_name || "—").toUpperCase())}</b></div>
+      <div class="idc-bk-row"><span>CONTACT</span><b>${esc(d.parent_phone || "—")}</b></div>
+      <div class="idc-bk-row"><span>ADDRESS</span><b>${esc(d.address || "—")}</b></div>
+      <div class="idc-bk-row"><span>SCHOOL</span><b>${esc((s.school_phone || "") + " · " + (s.school_email || ""))}</b></div>
+      <p class="idc-return">If found, kindly return this card to the school office or call the number above. <b>${esc((d.first_name + " " + d.last_name).toUpperCase())}</b> · ${esc(d.admission_no)}</p>
+    </div>
+    <div class="idc-foot">
+      <div class="idc-bcode">
+        <div class="idc-bars">${barcodeSvg(d.card_no)}</div>
+        <div class="idc-cardno">${esc(d.card_no)}</div>
+      </div>
+      <div class="idc-valid"><small>ISSUED ${esc((s.academic_year || "").split("-")[0] || "")}</small></div>
+    </div>
+  </div>`;
+}
+function idcardPairHtml(d) {
+  return `<div class="idc-pair"><div class="idc-label">FRONT</div>${idcardFrontHtml(d)}<div class="idc-label">BACK</div>${idcardBackHtml(d)}</div>`;
+}
+
+async function view_idcards(el, params) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading…</p></div>`;
+  const [classes, students] = await Promise.all([api("/api/classes"), api("/api/students")]);
+  const active = students.filter(s => s.status === "Active");
+  el.innerHTML = `
+  <div class="toolbar no-print">
+    <select class="input" id="idc-class" style="min-width:220px">
+      <option value="">All classes (search below)</option>
+      ${classes.map(c => `<option value="${c.id}" ${params.classId && String(c.id) === String(params.classId) ? "selected" : ""}>${esc(c.name)} (${c.cnt})</option>`).join("")}
+    </select>
+    <div class="search-wrap" style="min-width:240px"><svg><use href="#i-search"/></svg>
+      <input class="input" id="idc-q" placeholder="Search student name / admission no…"></div>
+    <div class="grow"></div>
+    <button class="btn btn-outline" id="idc-print-class" disabled><svg><use href="#i-print"/></svg> Print class cards</button>
+  </div>
+  <div id="idc-pick" style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:16px">
+    <p style="padding:14px;color:var(--muted);font-size:13px">Type a student's name or admission number above, or pick a class, then click a student to preview their ID card.</p>
+  </div>
+  <div id="idc-preview" class="idc-preview-wrap"></div>
+  <!-- hidden print area for whole-class batch -->
+  <div id="idc-print-area"></div>`;
+
+  const pickBox = $("#idc-pick");
+  function renderPick(list) {
+    pickBox.innerHTML = list.length ? `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px;padding:10px">
+        ${list.map(s => `
+          <button class="stu-picker-item" style="border:1px solid var(--line);border-radius:9px;background:#fff;width:100%;text-align:left"
+            onclick="loadIdCard(${s.id})">
+            ${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}
+            <div><b>${esc(s.first_name + " " + s.last_name)}</b>
+              <small>${esc(s.admission_no)} · ${esc(s.class_name || "unplaced")}</small></div>
+            <svg style="width:14px;height:14px;margin-left:auto;color:var(--muted)"><use href="#i-card"/></svg>
+          </button>`).join("")}
+      </div>` : '<p style="padding:14px;color:var(--muted);font-size:13px">No students match your search.</p>';
+  }
+  function filterPick() {
+    const q = $("#idc-q").value.toLowerCase();
+    const cid = $("#idc-class").value;
+    let list = active;
+    if (cid) list = list.filter(s => String(s.class_id || "") === cid);
+    if (q) list = list.filter(s =>
+      (s.first_name + " " + (s.middle_name || "") + " " + s.last_name + " " + (s.admission_no || "")).toLowerCase().includes(q));
+    renderPick(list.slice(0, 60));
+    $("#idc-print-class").disabled = !cid;
+  }
+  $("#idc-q").addEventListener("input", filterPick);
+  $("#idc-class").addEventListener("change", e => {
+    filterPick();
+    if (e.target.value) openView("idcards", { classId: e.target.value });
+  });
+  filterPick();
+
+  $("#idc-print-class").addEventListener("click", async () => {
+    const cid = $("#idc-class").value;
+    if (!cid) { toast("Select a class first", "err"); return; }
+    const d = await api("/api/idcards/class/" + cid);
+    const area = $("#idc-print-area");
+    area.innerHTML = `<div class="idc-batch-title">${esc(d.class.name)} — Student ID Cards (${d.year})</div>` +
+      d.students.map(st => idcardPairHtml({ ...st, settings: d.settings })).join("");
+    printIdCards();
+  });
+
+  if (params.studentId) loadIdCard(params.studentId);
+}
+
+async function loadIdCard(sid) {
+  const d = await api("/api/idcards/student/" + sid);
+  const wrap = $("#idc-preview");
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div class="toolbar no-print" style="margin-bottom:12px">
+      <b style="font-size:14px">${esc(d.first_name + " " + d.last_name)} — ${esc(d.admission_no)}</b>
+      <div class="grow"></div>
+      <button class="btn btn-primary" onclick="openIdCardModal(${sid})"><svg><use href="#i-card"/></svg> View &amp; Print Card</button>
+    </div>
+    ${idcardPairHtml(d)}`;
+  wrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function openIdCardModal(sid) {
+  const d = await api("/api/idcards/student/" + sid);
+  modal(`
+  <div class="modal-head no-print"><h3>ID Card — ${esc(d.first_name + " " + d.last_name)}</h3>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="printIdCards()"><svg><use href="#i-print"/></svg> Print card</button>
+      <button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button>
+    </div></div>
+  <div class="modal-body" style="background:#e5e7eb">
+    <div id="idcard-sheet">${idcardPairHtml(d)}</div>
+  </div>`);
+}
+
+function printIdCards() {
+  document.body.classList.add("print-mode");
+  const clear = () => document.body.classList.remove("print-mode");
+  setTimeout(() => { window.focus(); window.print(); }, 150);
+  window.addEventListener("afterprint", clear, { once: true });
+  setTimeout(clear, 30000);
+}
+
+/* ============================================================
    PARENT / GUARDIAN PORTAL
    ============================================================ */
 async function gChildren() {
@@ -2955,6 +3624,10 @@ async function view_gdash(el) {
     </div>
   </div>
   <div class="card" style="margin-top:18px">
+    <div class="card-head"><h3>Conduct this term</h3><p>CBC holistic development</p></div>
+    <div id="g-conduct"><p style="color:var(--muted)">Loading…</p></div>
+  </div>
+  <div class="card" style="margin-top:18px">
     <div class="card-head"><h3>School announcements</h3></div>
     <div class="ann-list">
       ${d.announcements.map(a => `
@@ -2965,6 +3638,22 @@ async function view_gdash(el) {
         </div>`).join("") || '<p style="color:var(--muted)">No announcements</p>'}
     </div>
   </div>`;
+  // load conduct summary for the selected child
+  api(`/api/discipline/student/${gChildId()}`).then(c => {
+    const el2 = $("#g-conduct");
+    if (!el2) return;
+    el2.innerHTML = `
+      <div class="kgrid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi"><div class="k">Merits</div><div class="v" style="color:var(--green-dark)">${c.merits}</div></div>
+        <div class="kpi"><div class="k">Demerits</div><div class="v" style="color:${c.demerits > 0 ? "var(--red)" : "var(--green-dark)"}">${c.demerits}</div></div>
+        <div class="kpi"><div class="k">Rating</div><div class="v" style="font-size:15px"><span class="badge ${CONDUCT_STYLES[c.rating] || "b-slate"}">${esc(c.rating)}</span></div></div>
+      </div>
+      ${c.recent && c.recent.length ? `<div class="section-title">Recent records</div>
+        ${c.recent.slice(0, 4).map(r => `<div style="padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12.5px">
+          <span class="badge ${r.record_type === "Merit" ? "b-green" : "b-red"}" style="margin-right:6px">${esc(r.record_type)}</span>
+          <b>${esc(r.category || "")}</b> — <small style="color:var(--muted)">${fmtDate(r.record_date)}</small>
+        </div>`).join("")}` : ""}`;
+  }).catch(() => { const el2 = $("#g-conduct"); if (el2) el2.innerHTML = '<p style="color:var(--muted)">No conduct records yet</p>'; });
   bindGChild("gdash");
 }
 
@@ -3019,61 +3708,134 @@ async function view_gfees(el) {
   await gChildSwitcher(el);
   const d = await api(`/api/guardian/statement?student_id=${gChildId()}`);
   const st = d.student;
+  const pct = d.total_billed ? Math.round(d.total_paid / d.total_billed * 100) : 0;
+  // per-term tracker
+  const terms = ["Term 1", "Term 2", "Term 3"];
+  const perTerm = terms.map(t => {
+    const billed = d.billing.filter(b => b.term === t).reduce((a, b) => a + b.amount, 0);
+    const paid = d.payments.filter(p => p.term === t).reduce((a, p) => a + p.amount, 0);
+    return { term: t, billed, paid, balance: billed - paid, pct: billed ? Math.round(paid / billed * 100) : 0 };
+  }).filter(t => t.billed > 0);
+  // running balance in payment history (oldest -> newest)
+  const sorted = [...d.payments].sort((a, b) => (a.payment_date + String(a.id)).localeCompare(b.payment_date + String(b.id)));
+  let running = d.total_billed;
+  const runningMap = {};
+  sorted.forEach(p => { running -= p.amount; runningMap[p.id] = running; });
   el.innerHTML = `
   ${await gChildSwitcher(el)}
   <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
     ${statCard("blue", "i-money", fmtMoney(d.total_billed), "Total billed", "All terms")}
-    ${statCard("green", "i-money", fmtMoney(d.total_paid), "Total paid", d.payments.length + " payments")}
-    ${statCard(d.balance > 0 ? "red" : "green", "i-money", fmtMoney(d.balance), "Outstanding balance", d.balance > 0 ? "Please clear" : "All cleared")}
+    ${statCard("green", "i-money", fmtMoney(d.total_paid), "Total paid", d.payments.length + " payment" + (d.payments.length === 1 ? "" : "s"))}
+    ${statCard(d.balance > 0 ? "red" : "green", "i-money", fmtMoney(Math.max(0, d.balance)), "Outstanding balance", d.balance > 0 ? "Please clear" : "All cleared")}
   </div>
-  <div class="grid-2-1">
-    <div class="card">
-      <div class="card-head"><h3>Billing (${esc(d.class ? d.class.name : "")})</h3><p>Itemised per term</p></div>
-      <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Term</th><th>Item</th><th>Year</th><th class="num">Amount</th></tr></thead>
-        <tbody>${d.billing.map(b => `<tr><td>${esc(b.term)}</td><td>${esc(b.label)}</td><td>${esc(b.academic_year)}</td><td class="num"><b>${fmtMoney(b.amount)}</b></td></tr>`).join("") || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">No billing set yet</td></tr>'}
-        </tbody></table></div>
-    </div>
-    <div class="card">
-      <div class="card-head"><h3>Pay via M-PESA</h3><p>Simulated STK push</p></div>
-      <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Make a payment for <b>${esc(st.first_name + " " + st.last_name)}</b>. A receipt is generated immediately.</p>
-      <div class="form-grid" style="grid-template-columns:1fr">
-        <div><label>Amount (${esc(state.settings.currency || "KSh")})</label><input id="gp-amount" class="input" type="number" min="100" step="100" placeholder="e.g. 10000"></div>
-        <div><label>Payment type</label>
-          <select id="gp-type" class="input">
-            ${(await api("/api/payment-types")).filter(t => t.active).map(t => `<option value="${t.id}">${esc(t.name)}${t.default_amount ? " — " + fmtMoney(t.default_amount) : ""}</option>`).join("")}
-          </select></div>
-        <button class="btn btn-primary" id="gp-pay"><svg><use href="#i-money"/></svg> Pay ${esc(state.settings.currency || "KSh")} via M-PESA</button>
+
+  <!-- Fee balance tracker -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-head"><h3>Fee balance tracker</h3><p>${esc(st.first_name + " " + st.last_name)} · ${esc(d.class ? d.class.name : "")}</p></div>
+    <div class="grid-2-1">
+      <div>
+        <div class="balance-hero" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+          <div>
+            <small style="color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:11px">Balance outstanding</small>
+            <div style="font-size:30px;font-weight:800;color:${d.balance > 0 ? "var(--red)" : "var(--green-dark)"};letter-spacing:-.5px">${fmtMoney(Math.max(0, d.balance))}</div>
+            <span class="badge ${d.balance <= 0 ? "b-green" : pct >= 60 ? "b-amber" : "b-red"}" style="margin-top:4px">
+              ${d.balance <= 0 ? "✓ All cleared" : pct >= 60 ? "Mostly paid" : "Balance due"}</span>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--slate);margin-bottom:6px">
+              <span>Paid ${fmtMoney(d.total_paid)} of ${fmtMoney(d.total_billed)}</span><b>${pct}%</b>
+            </div>
+            <div class="progress ${pct >= 100 ? "" : pct >= 60 ? "amber" : "red"}" style="height:12px"><div style="width:${Math.min(100, pct)}%"></div></div>
+          </div>
+        </div>
+        <div class="section-title">Per-term breakdown</div>
+        <div class="table-wrap"><table class="tbl" style="min-width:0">
+          <thead><tr><th>Term</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Balance</th><th style="min-width:130px">Payment progress</th></tr></thead>
+          <tbody>
+            ${perTerm.map(t => `
+              <tr>
+                <td><b>${esc(t.term)}</b></td>
+                <td class="num">${fmtMoney(t.billed)}</td>
+                <td class="num" style="color:var(--green-dark)">${fmtMoney(t.paid)}</td>
+                <td class="num"><b style="color:${t.balance > 0 ? "var(--red)" : "var(--green-dark)"}">${fmtMoney(Math.max(0, t.balance))}</b></td>
+                <td><div class="progress ${t.pct >= 100 ? "" : t.pct >= 60 ? "amber" : "red"}"><div style="width:${Math.min(100, t.pct)}%"></div></div>
+                  <small style="color:var(--muted)">${t.pct}% paid</small></td>
+              </tr>`).join("") || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">No billing set</td></tr>'}
+          </tbody></table></div>
       </div>
-      <p style="font-size:11.5px;color:var(--muted);margin-top:8px">In production this connects to the Daraja STK-push API. For this demo the payment is recorded instantly.</p>
+      <div>
+        <div class="card" style="border-color:var(--green-100);box-shadow:none;margin:0">
+          <div class="card-head"><h3>Pay via M-PESA</h3><p>Simulated STK push</p></div>
+          ${d.balance > 0 ? `
+          <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Clear the balance of <b style="color:var(--red)">${fmtMoney(Math.max(0, d.balance))}</b> for ${esc(st.first_name)}.</p>
+          <div class="form-grid" style="grid-template-columns:1fr">
+            <div><label>Amount (${esc(state.settings.currency || "KSh")})</label><input id="gp-amount" class="input" type="number" min="100" step="100" value="${Math.max(100, Math.round(Math.max(0, d.balance)))}"></div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:2px">
+                <input type="checkbox" id="gp-split" style="accent-color:var(--green);width:16px;height:16px" checked>
+                <span style="font-weight:600">Split across fees &amp; transport automatically</span>
+              </label>
+              <small style="color:var(--muted);display:block;margin-top:3px">Applied to the oldest outstanding term first.</small>
+            </div>
+            <div id="gp-type-wrap"><label>Payment type (if not splitting)</label>
+              <select id="gp-type" class="input" disabled>
+                ${(await api("/api/payment-types")).filter(t => t.active).map(t => `<option value="${t.id}">${esc(t.name)}${t.default_amount ? " — " + fmtMoney(t.default_amount) : ""}</option>`).join("")}
+              </select></div>
+            <button class="btn btn-primary" id="gp-pay"><svg><use href="#i-money"/></svg> Pay ${esc(state.settings.currency || "KSh")} via M-PESA</button>
+          </div>` : `
+          <div style="text-align:center;padding:18px 0">
+            <svg style="width:44px;height:44px;color:var(--green)"><use href="#i-check"/></svg>
+            <p style="font-size:14px;font-weight:700;color:var(--green-dark);margin-top:8px">All fees are cleared!</p>
+            <p style="font-size:12.5px;color:var(--muted)">No outstanding balance for this term.</p>
+          </div>`}
+          <p style="font-size:11.5px;color:var(--muted);margin-top:8px">In production this connects to the Daraja STK-push API. For this demo the payment is recorded instantly.</p>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="card" style="margin-top:18px">
-    <div class="card-head"><h3>Payment history</h3></div>
+
+  <div class="card">
+    <div class="card-head"><h3>Payment history</h3><p>Track every payment and the balance after each one</p></div>
     <div class="table-wrap"><table class="tbl">
-      <thead><tr><th>Date</th><th class="num">Amount</th><th>Type</th><th>Method</th><th>Ref</th><th>Receipt</th><th class="num">Receipt</th></tr></thead>
-      <tbody>${d.payments.map(p => `<tr>
-        <td>${fmtDate(p.payment_date)}</td>
-        <td class="num"><b style="color:var(--green-dark)">${fmtMoney(p.amount)}</b></td>
-        <td><span class="badge ${typeBadge(p.payment_type_category)}">${esc(p.payment_type_name || "General")}</span></td>
-        <td>${esc(p.method || "—")}</td>
-        <td><small>${esc(p.reference || "—")}</small></td>
-        <td><span class="badge b-slate">${esc(p.receipt_no)}</span></td>
-        <td><div class="actions"><button class="ic-btn" onclick="showReceipt(${p.id})"><svg><use href="#i-receipt"/></svg></button></div></td>
-      </tr>`).join("") || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No payments yet</td></tr>'}
+      <thead><tr><th>Date</th><th class="num">Amount</th><th>Applied to</th><th>Method</th><th>Ref</th><th class="num">Balance after</th><th class="num">Receipt</th></tr></thead>
+      <tbody>${(() => {
+        const grouped = groupReceipts(d.payments).sort((a, b) => (b.date + "").localeCompare(a.date + ""));
+        let remain = d.total_billed;
+        return grouped.map(g => {
+          remain -= g.amount;
+          return `<tr>
+            <td>${fmtDate(g.date)}</td>
+            <td class="num"><b style="color:var(--green-dark)">${fmtMoney(g.amount)}</b></td>
+            <td><small>${esc(g.summary)}</small></td>
+            <td>${esc(g.method || "—")}</td>
+            <td><small>${esc(g.reference || "—")}</small></td>
+            <td class="num"><b style="color:${remain > 0 ? "var(--red)" : "var(--green-dark)"}">${fmtMoney(Math.max(0, remain))}</b></td>
+            <td><div class="actions"><button class="ic-btn" onclick="showReceipt(${g.id})"><svg><use href="#i-receipt"/></svg></button></div></td>
+          </tr>`;
+        }).join("") || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No payments yet</td></tr>';
+      })()}
       </tbody></table></div>
   </div>`;
   $("#gp-pay").addEventListener("click", async () => {
     const amount = $("#gp-amount").value;
     if (!amount || Number(amount) <= 0) { toast("Enter an amount", "err"); return; }
     try {
+      const autoSplit = $("#gp-split").checked;
       const r = await api("/api/guardian/pay", { method: "POST", body: {
-        student_id: gChildId(), amount: Number(amount), payment_type_id: Number($("#gp-type").value) || null } });
-      toast("Payment successful — " + r.receipt_no);
+        student_id: gChildId(), amount: Number(amount),
+        payment_type_id: autoSplit ? null : (Number($("#gp-type").value) || null),
+        auto_split: autoSplit } });
+      toast(r.split ? "Payment successful — split across " + r.parts + " item" + (r.parts > 1 ? "s" : "") + " · " + r.receipt_no : "Payment successful — " + r.receipt_no);
       showReceipt(r.id);
       openView("gfees");
     } catch (err) { toast(err.message, "err"); }
   });
+  const gsplit = $("#gp-split");
+  if (gsplit) {
+    const gtw = $("#gp-type-wrap");
+    const sync = () => { if (gtw) gtw.style.opacity = gsplit.checked ? ".45" : "1"; const gt = $("#gp-type"); if (gt) gt.disabled = gsplit.checked; };
+    gsplit.addEventListener("change", sync); sync();
+  }
   bindGChild("gfees");
 }
 
@@ -3296,11 +4058,123 @@ async function applySizePick(key) {
   applyAppearance();
   toast("Font size applied");
 }
+/* ---- shared: searchable multi-student picker (returns container wiring) ---- */
+function studentMultiPicker(containerId, selectedIds, label = "Link children") {
+  const pick = $(containerId);
+  pick.innerHTML = `
+    <div class="stu-picker">
+      <div class="search-wrap"><svg><use href="#i-search"/></svg>
+        <input class="input" id="${containerId}-search" placeholder="Search name or admission no…" autocomplete="off"></div>
+      <div id="${containerId}-list" class="gu-list"></div>
+    </div>
+    <p id="${containerId}-count" style="font-size:12px;color:var(--muted);margin-top:6px"></p>`;
+  const sel = new Set(selectedIds || []);
+  const listEl = $(containerId + "-list");
+  const countEl = $(containerId + "-count");
+  const updateCount = () => countEl.textContent = sel.size + " student" + (sel.size === 1 ? "" : "s") + " linked — they will share one portal";
+  const paint = (rows) => {
+    listEl.innerHTML = rows.map(s => `
+      <label class="gu-row ${sel.has(s.id) ? "on" : ""}">
+        <input type="checkbox" class="gu-check" data-sid="${s.id}" ${sel.has(s.id) ? "checked" : ""}>
+        ${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}
+        <div><b>${esc(s.first_name + " " + s.last_name)}</b>
+          <small>${esc(s.admission_no)} · ${esc(s.class_name || "unplaced")}</small></div>
+      </label>`).join("") || '<p style="padding:10px;color:var(--muted);font-size:12.5px">No students match</p>';
+    $$(".gu-check", listEl).forEach(cb => cb.addEventListener("change", () => {
+      const sid = Number(cb.dataset.sid);
+      if (cb.checked) sel.add(sid); else sel.delete(sid);
+      cb.closest(".gu-row").classList.toggle("on", cb.checked);
+      updateCount();
+    }));
+  };
+  const filter = () => {
+    const q = ($(containerId + "-search").value || "").toLowerCase();
+    const rows = window.__guStudents.filter(s =>
+      !q || (s.first_name + " " + s.last_name + " " + (s.admission_no || "") + " " + (s.class_name || "")).toLowerCase().includes(q));
+    paint(rows);
+  };
+  $(containerId + "-search").addEventListener("input", filter);
+  filter();
+  updateCount();
+  return sel;
+}
+
+async function parentForm() {
+  const students = await api("/api/students");
+  window.__guStudents = students.filter(s => s.status === "Active");
+  modal(`
+  <div class="modal-head"><h3>Add Parent</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div><label>Parent / Guardian Name *</label><input id="p-name" class="input" placeholder="e.g. Mary Moraa"></div>
+    <div><label>Phone number (login username) *</label><input id="p-user" class="input" placeholder="0712 345 678"></div>
+    <div><label>Password *</label><input id="p-pass" class="input" value="parent123" placeholder="temporary password"></div>
+    <div></div>
+    <div class="full"><label>Linked children — one portal, all their details</label>
+      <div id="p-children"></div>
+    </div>
+  </div></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="p-save"><svg><use href="#i-plus"/></svg> Create Parent</button>
+  </div>`);
+  const sel = studentMultiPicker("#p-children", [], "Link children");
+  $("#p-save").addEventListener("click", async () => {
+    const body = {
+      full_name: $("#p-name").value.trim(),
+      username: ($("#p-user").value || "").replace(/[^0-9]/g, ""),
+      password: $("#p-pass").value || "parent123",
+      role: "guardian",
+      student_ids: [...sel],
+    };
+    if (!body.full_name) { toast("Parent name required", "err"); return; }
+    if (!body.username) { toast("Phone number required (used to log in)", "err"); return; }
+    if (sel.size === 0) { toast("Link at least one child", "err"); return; }
+    try {
+      await api("/api/users", { method: "POST", body });
+      toast("Parent created — they can log in with " + body.username + " and view " + sel.size + " child" + (sel.size > 1 ? "ren" : ""));
+      closeModal(); settingsUsers(true);
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function manageParentChildren(uid) {
+  const [users, students] = await Promise.all([api("/api/users"), api("/api/students")]);
+  const u = users.find(x => x.id === uid);
+  if (!u) return;
+  window.__guStudents = students.filter(s => s.status === "Active");
+  modal(`
+  <div class="modal-head"><h3>Manage children — ${esc(u.full_name)}</h3>
+    <p style="font-size:12px;color:var(--muted)">${esc(u.username)}</p>
+    <button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body">
+    <p style="font-size:12.5px;color:var(--slate);margin-bottom:10px">Tick the students this parent should see in their portal. Two or more children share the same login, with a child switcher to view each one.</p>
+    <div id="m-children"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="m-save"><svg><use href="#i-download"/></svg> Save Children</button>
+  </div>`);
+  const links = await api("/api/users/" + uid + "/children");
+  const currentIds = links.map(l => l.id);
+  const sel = studentMultiPicker("#m-children", currentIds, "Link children");
+  $("#m-save").addEventListener("click", async () => {
+    try {
+      await api("/api/users/" + uid, { method: "PUT", body: { student_ids: [...sel] } });
+      toast("Saved — " + sel.size + " child" + (sel.size === 1 ? "" : "ren") + " linked");
+      closeModal(); settingsUsers(true);
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
 async function settingsUsers(showParents) {
   const users = await api("/api/users");
   const staff = users.filter(u => u.role !== "guardian");
   const parents = users.filter(u => u.role === "guardian");
   const shown = showParents ? parents : staff;
+  const roleBadge = (r) => r === "admin" ? '<span class="badge b-admin">Administrator</span>'
+    : r === "teacher" ? '<span class="badge b-teacher">Teacher</span>'
+    : r === "accounts" ? '<span class="badge b-accounts">Accounts</span>'
+    : '<span class="badge b-slate">Parent</span>';
   $("#st-body").innerHTML = `
   <div class="toolbar">
     <p style="color:var(--muted)">${staff.length} staff accounts · ${parents.length} parent accounts</p>
@@ -3308,36 +4182,58 @@ async function settingsUsers(showParents) {
       <option value="staff" ${showParents ? "" : "selected"}>Staff accounts</option>
       <option value="parents" ${showParents ? "selected" : ""}>Parent accounts</option>
     </select>
+    <div class="search-wrap"><svg><use href="#i-search"/></svg>
+      <input class="input" id="usr-search" placeholder="Search by name, username…" style="min-width:200px"></div>
     <div class="grow"></div>
-    ${showParents ? "" : '<button class="btn btn-primary" onclick="userForm()"><svg><use href="#i-plus"/></svg> Add User</button>'}
+    ${showParents
+      ? '<button class="btn btn-primary" onclick="parentForm()"><svg><use href="#i-plus"/></svg> Add Parent</button>'
+      : '<button class="btn btn-primary" onclick="userForm()"><svg><use href="#i-plus"/></svg> Add User</button>'}
   </div>
   <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Status</th><th class="num">Actions</th></tr></thead>
-    <tbody>
-      ${shown.map(u => `
-        <tr>
-          <td>${avatarHtml(u.profile_pic, u.full_name, "avatar-sm")}<b style="margin-left:8px">${esc(u.full_name)}</b></td>
-          <td><code>${esc(u.username)}</code></td>
-          <td><span class="badge ${u.role === "admin" ? "b-admin" : u.role === "teacher" ? "b-teacher" : u.role === "accounts" ? "b-accounts" : "b-slate"}">
-            ${u.role === "admin" ? "Administrator" : u.role === "teacher" ? "Teacher" : u.role === "accounts" ? "Accounts" : "Parent"}</span></td>
-          <td><button class="switch ${u.active ? "on" : ""}" data-id="${u.id}" data-active="${u.active}" title="Toggle active"></button></td>
-          <td><div class="actions">
-            <button class="ic-btn" title="Reset password" onclick="resetPwd(${u.id},'${esc(u.username)}')"><svg><use href="#i-key"/></svg></button>
-            ${u.role === "guardian" ? "" : `<button class="ic-btn" title="Edit role" onclick="editUser(${u.id})"><svg><use href="#i-edit"/></svg></button>`}
-          </div></td>
-        </tr>`).join("")}
+    <thead><tr><th>User</th><th>Username</th><th>Role</th>${showParents ? '<th class="num">Children</th>' : ""}<th>Status</th><th class="num">Actions</th></tr></thead>
+    <tbody id="usr-body">
+      ${shown.map(u => usrRowHtml(u, showParents)).join("")}
     </tbody></table></div>
-    <p style="font-size:12px;color:var(--muted);margin-top:12px">
-      ${showParents ? "Parent accounts are created automatically from student records — username is the parent's phone number, initial password <code>parent123</code>."
+    <p id="usr-count" style="font-size:12px;color:var(--muted);margin-top:10px">${shown.length} account${shown.length === 1 ? "" : "s"}</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px">
+      ${showParents
+        ? "Parents are created automatically from student records (username = phone number) or added manually here. Link two or more children to one parent and they share the same portal, with a child switcher to view each child."
         : "<b>Administrator</b> — full access · <b>Teacher</b> — academics, marks, attendance · <b>Accounts</b> — finance &amp; fee management only."}</p>`;
   const flt = $("#usr-filter");
   if (flt) flt.addEventListener("change", e => settingsUsers(e.target.value === "parents"));
+  // live search
+  const search = $("#usr-search");
+  if (search) search.addEventListener("input", e => {
+    const q = e.target.value.toLowerCase();
+    const rows = shown.filter(u =>
+      (u.full_name + " " + u.username).toLowerCase().includes(q));
+    $("#usr-body").innerHTML = rows.map(u => usrRowHtml(u, showParents)).join("");
+    $("#usr-count").textContent = rows.length + " account" + (rows.length === 1 ? "" : "s");
+  });
   $$(".switch").forEach(b => b.addEventListener("click", async () => {
     const active = b.dataset.active === "1" ? 0 : 1;
     await api("/api/users/" + b.dataset.id, { method: "PUT", body: { active } });
     toast(active ? "Account activated" : "Account deactivated");
     settingsUsers(showParents);
   }));
+}
+function usrRowHtml(u, showParents) {
+  return `<tr>
+    <td>${avatarHtml(u.profile_pic, u.full_name, "avatar-sm")}<b style="margin-left:8px">${esc(u.full_name)}</b></td>
+    <td><code>${esc(u.username)}</code></td>
+    <td>${u.role === "admin" ? '<span class="badge b-admin">Administrator</span>'
+      : u.role === "teacher" ? '<span class="badge b-teacher">Teacher</span>'
+      : u.role === "accounts" ? '<span class="badge b-accounts">Accounts</span>'
+      : '<span class="badge b-slate">Parent</span>'}</td>
+    ${showParents ? `<td class="num"><span class="badge ${u.child_count > 1 ? "b-blue" : "b-slate"}">${u.child_count || 0} child${u.child_count === 1 ? "" : "ren"}</span></td>` : ""}
+    <td><button class="switch ${u.active ? "on" : ""}" data-id="${u.id}" data-active="${u.active}" title="Toggle active"></button></td>
+    <td><div class="actions">
+      <button class="ic-btn" title="Reset password" onclick="resetPwd(${u.id},'${esc(u.username)}')"><svg><use href="#i-key"/></svg></button>
+      ${u.role === "guardian"
+        ? `<button class="ic-btn" title="Manage children" onclick="manageParentChildren(${u.id})"><svg><use href="#i-users"/></svg></button>`
+        : `<button class="ic-btn" title="Edit role" onclick="editUser(${u.id})"><svg><use href="#i-edit"/></svg></button>`}
+    </div></td>
+  </tr>`;
 }
 async function userForm() {
   modal(`

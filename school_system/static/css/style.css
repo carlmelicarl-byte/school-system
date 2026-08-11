@@ -315,6 +315,71 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
 .net-pill.offline{background:#fef3c7;color:var(--amber)}
 #net-pending{font-weight:600;opacity:.85}
 
+/* ---------- ID cards ---------- */
+.idc-preview-wrap{display:flex;flex-direction:column;gap:14px}
+.idc-pair{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+.idc-label{font-size:10px;font-weight:700;letter-spacing:.14em;color:#94a3b8;margin:0 0 5px 2px}
+.idcard{width:344px;height:214px;background:#fff;border:1.5px solid #0f172a;border-radius:12px;
+  overflow:hidden;display:flex;flex-direction:column;box-shadow:0 6px 18px rgba(15,23,42,.12);
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.idc-front{background:linear-gradient(160deg,#ffffff 0%,#f0fdf4 100%)}
+.idc-head{display:flex;gap:10px;align-items:center;padding:8px 10px 6px;border-bottom:2px solid #14532d;
+  background:linear-gradient(90deg,#14532d,#166534)}
+.idc-logo{width:38px;height:38px;border-radius:8px;overflow:hidden;flex:none;background:#fff;display:flex;align-items:center;justify-content:center}
+.idc-logo img{width:100%;height:100%;object-fit:contain}
+.idc-crest{width:38px;height:38px;border-radius:50%;background:#fff;color:#14532d;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;letter-spacing:.5px}
+.idc-org{flex:1;line-height:1.25;color:#fff}
+.idc-org b{font-size:12.5px;letter-spacing:.4px;display:block}
+.idc-org small{font-size:8.5px;display:block;opacity:.92}
+.idc-body{flex:1;display:flex;gap:12px;padding:9px 12px}
+.idc-photo{width:92px;height:106px;border:1.5px solid #14532d;border-radius:8px;overflow:hidden;flex:none;background:#dcfce7}
+.idc-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.idc-photo-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#15803d}
+.idc-details{flex:1;min-width:0}
+.idc-name{font-size:13px;font-weight:800;color:#0f172a;margin-bottom:4px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.idc-table{width:100%;border-collapse:collapse}
+.idc-table td{padding:1.5px 2px;font-size:9px;line-height:1.3}
+.idc-table .k{color:#64748b;font-weight:700;letter-spacing:.05em;width:44%}
+.idc-table .v{color:#0f172a;font-weight:700}
+.idc-foot{display:flex;align-items:flex-end;gap:8px;padding:6px 12px;background:#f8fafc;border-top:1px solid #e2e8f0}
+.idc-bcode{flex:1}
+.idc-bars svg{display:block}
+.idc-cardno{font-size:9.5px;font-weight:800;letter-spacing:.12em;color:#0f172a;margin-top:1px}
+.idc-sign{text-align:center;flex:none}
+.idc-sign .sig-line{border-top:1.5px solid #0f172a;width:74px;margin-bottom:2px}
+.idc-sign small{font-size:8px;color:#64748b;letter-spacing:.1em}
+.idc-valid{text-align:center;flex:none;border:1px solid #14532d;border-radius:6px;padding:2px 8px;background:#dcfce7}
+.idc-valid small{display:block;font-size:7.5px;color:#166534;letter-spacing:.12em}
+.idc-valid b{font-size:13px;color:#14532d}
+.idc-strip{background:#14532d;color:#fff;text-align:center;font-size:8px;letter-spacing:.34em;padding:3px 0;font-weight:700}
+.idc-back{background:#fff}
+.idc-back .idc-head{border-bottom:2px solid #14532d;padding:7px 10px}
+.idc-back-body{flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:5px}
+.idc-bk-row{display:flex;justify-content:space-between;gap:10px;font-size:9.5px;border-bottom:1px dashed #e2e8f0;padding-bottom:3px}
+.idc-bk-row span{color:#64748b;font-weight:700;letter-spacing:.06em;flex:none}
+.idc-bk-row b{font-size:9.5px;text-align:right}
+.idc-return{font-size:8.5px;color:#475569;margin-top:auto;font-style:italic;line-height:1.4}
+/* batch print area — hidden on screen */
+#idc-print-area{display:none}
+.idc-batch-title{font-size:14px;font-weight:800;text-align:center;letter-spacing:.12em;margin-bottom:14px}
+/* print: hide app, show modal card or batch area */
+body.print-mode #app{display:none!important}
+@media print{
+  body.print-mode #app{display:none!important}
+  body.print-mode #login-screen{display:none!important}
+  body.print-mode #toast-wrap{display:none!important}
+  body.print-mode .modal-backdrop{display:flex!important;position:static!important;inset:auto!important;
+    background:#fff!important;padding:0!important;overflow:visible!important}
+  body.print-mode .modal{box-shadow:none!important;max-width:none!important;border:0!important}
+  body.print-mode .modal-head{display:none!important}
+  body.print-mode .modal-body{max-height:none!important;overflow:visible!important;padding:10px!important;background:#fff!important}
+  body.print-mode #idcard-sheet .idc-pair{justify-content:center}
+  body.print-mode #idc-print-area{display:block!important}
+  body.print-mode .idc-pair{break-inside:avoid;page-break-inside:avoid;margin-bottom:16px}
+  body.print-mode #idc-print-area .idc-pair{display:inline-block;vertical-align:top;width:49%}
+  .no-print{display:none!important}
+}
+
 /* ---------- transport ---------- */
 .route-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff;box-shadow:var(--shadow)}
 .route-card h4{font-size:14.5px;display:flex;align-items:center;gap:8px}
@@ -374,6 +439,16 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
 .tt-empty{color:#cbd5e1;font-size:17px;font-weight:700}
 .tt-break td{background:#f8fafc!important;color:var(--muted);font-size:11.5px;font-weight:700;letter-spacing:.06em;text-align:center!important;height:30px}
 .tt-load-badge{display:inline-flex;align-items:center;gap:6px;background:var(--green-100);color:var(--green-dark);font-weight:700;font-size:12px;padding:5px 11px;border-radius:999px}
+
+/* ---------- multi-student picker (parent children) ---------- */
+.gu-list{max-height:190px;overflow-y:auto;border:1.5px solid var(--line);border-radius:9px;margin-top:6px;background:#fff}
+.gu-row{display:flex;align-items:center;gap:10px;padding:7px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:13px}
+.gu-row:last-child{border-bottom:0}
+.gu-row:hover{background:var(--bg)}
+.gu-row.on{background:var(--green-50)}
+.gu-row input{accent-color:var(--green);width:16px;height:16px;flex:none}
+.gu-row b{font-size:13px}
+.gu-row small{color:var(--muted);font-size:11.5px;display:block}
 
 /* ---------- searchable student picker (library issue) ---------- */
 .stu-picker{position:relative}
