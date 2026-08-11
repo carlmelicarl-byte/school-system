@@ -1,6 +1,12 @@
 # 🏫 ElimuPro — School Management System
 
-A complete, professional school management platform modelled on **Zeraki** (Analytics, Finance) and **SmartShule** — built for the Kenyan school system (CBC Junior Secondary + KCSE-style grading). Runs locally with **Flask + SQLite** and a modern web dashboard. No external services required.
+A complete, professional school management platform modelled on **Zeraki** (Analytics, Finance) and **SmartShule** — built for the Kenyan school system using the **current Competency-Based Curriculum (CBC)**. Runs locally with **Flask + SQLite** and a modern web dashboard. No external services required.
+
+### 📚 The Kenyan CBC curriculum, built in
+- **Subject sets per grade band**: Lower Primary (Grade 1–3), Upper Primary (Grade 4–6), Junior Secondary (Grade 7–9) and Senior Secondary (Grade 10–12) — e.g. Grade 1 takes English, Kiswahili, Mathematics, Environmental Activities, Hygiene & Nutrition, Movement & Creative Activities and CRE; Grade 7–9 adds Integrated Science, Social Studies, Business Studies, Pre-Technical & Pre-Career Studies, Health Education, Life Skills and PE & Sports; Grade 10–12 adds Biology, Chemistry, Physics, Geography, History & Government and Computer Science
+- **CBC achievement-level grading for Grades 1–9** (as used in primary & junior secondary): **E** = Exceeding Expectations (80%+), **M** = Meeting Expectations (65%+), **A** = Approaching Expectations (50%+), **B** = Below Expectations (<50%)
+- **KCSE 12-point scale (A–E) for Senior Secondary (Grade 10–12)**
+- Marks entry, analytics, report cards and the parent portal all grade automatically per the student's class
 
 ---
 
@@ -20,6 +26,7 @@ python3 app.py             # start server → http://localhost:8000
 | Administrator | `admin`         | `admin123`    | Full system |
 | Teacher       | `teacher`       | `teacher123`  | Academics, marks, attendance, transport register |
 | Accounts      | `accounts`      | `accounts123` | Finance & fee management only (students read-only) |
+| Librarian     | `librarian`     | `librarian123`| Library — books, issues & returns |
 | Parent        | **phone number**| `parent123`   | Parent portal — own children only |
 
 Parent accounts are created automatically from student records: username = the parent's phone number (no spaces), initial password `parent123`. Change passwords after first login via **My Account** (click your name in the top-right).
@@ -42,7 +49,7 @@ Parent accounts are created automatically from student records: username = the p
 - Full admission records with **profile pictures**
 - Add / edit / view profile, class placement, parent contacts, fee summary, payment history, transport route
 - **Bulk CSV import** (paste rows: name, gender, class, parent) with a per-line error report
-- **Class promotion** — move an entire class to the next grade in one click
+- **Class promotion** — move an entire class to the next grade; the source class is left **completely empty** (all three terms reassigned) so it is ready for a fresh intake with no mix-ups
 - Per-student performance snapshot → **Report Card** / **Analytics** shortcuts
 - Search, filters, CSV export
 
@@ -55,7 +62,7 @@ Parent accounts are created automatically from student records: username = the p
 ### 📝 Exams & Marks Entry
 - Create exams by term; open/close status
 - Spreadsheet-style marks entry per class — live mean & grade, dirty-change tracking, bulk save
-- KCSE 12-point grading: A (80+) → A- → B+ → … → E
+- **Automatic CBC grading**: subjects and grade scale adapt to the class (CBC achievement levels for Grades 1–9, KCSE 12-point for Grades 10–12)
 
 ### 📈 Analytics
 - Overall mean, top student, best class, grade distribution, gender performance
@@ -107,6 +114,21 @@ Parent accounts are created automatically from student records: username = the p
 - **Activity feed / audit trail** on the dashboard records every key action (admissions, payments, imports, promotions, announcements…)
 - Skeleton loading screens, friendly empty states, toast notifications with icons
 - **Esc** closes modals; role-aware menus and alerts; version footer
+
+### 📚 Library (Librarian role)
+- **Book catalogue** — 30+ real books (set books, CBC textbooks, fiction, reference) with title, author, ISBN, publisher, category, shelf location and copy counts; add / edit / remove with a live **Available / Low / All out** status
+- **Issue & return** — the librarian issues a book to any student (due date defaults to 14 days), which decrements the available copies; returning restores them automatically
+- **Overdue tracking** — issue records flag **Overdue** automatically and show how long they're overdue
+- **Issue history** — every borrow/return with dates, status and the librarian who processed it; filter by status
+- **Librarian account** — `librarian` / `librarian123` — manages the library; teachers can view the catalogue; other roles are blocked (server-enforced)
+- Dashboard shows total books, issued and overdue counts
+
+### 📶 Offline & online mode (auto-sync)
+- A **service worker** caches the app shell and your data, so the system keeps working **offline** — you can view everything you've already loaded (students, results, fees, timetables…)
+- A live **Online / Offline pill** in the top bar and an offline banner tell you the connection state
+- Any change you make while offline (payments, marks, attendance, announcements…) is **saved locally in a sync queue**
+- When you're back online the system **auto-updates itself**: it flushes the queued changes to the server, then refreshes the current view automatically
+- Works on your own machine (localhost or any HTTPS deployment); the sandboxed chat preview may block the service worker, in which case the UI still works and the queue still applies
 
 ### 👤 My Account (all roles)
 - Upload your own profile picture (shown in the top bar)

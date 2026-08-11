@@ -17,7 +17,30 @@ const fmtDate = (iso) => {
   const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 };
-const gradeClass = (g) => { if (!g || g === "-") return "gNone"; return "g" + g[0]; };
+const CBC_LEVELS = {
+  E: { name: "Exceeding Expectations", band: "80% – 100%", cls: "gEx" },
+  M: { name: "Meeting Expectations",   band: "65% – 79%",  cls: "gMe" },
+  A: { name: "Approaching Expectations", band: "50% – 64%", cls: "gAp" },
+  B: { name: "Below Expectations",     band: "0% – 49%",   cls: "gBe" },
+};
+const KCSE_BANDS_LABEL = "A (80+) · A- (75+) · B+ (70+) · B (65+) · B- (60+) · C+ (55+) · C (50+) · C- (45+) · D+ (40+) · D (35+) · D- (30+) · E (<30)";
+const scaleForGrade = (g) => { const n = parseInt(String(g || "Grade 7").split(" ").pop(), 10); return (!isNaN(n) && n <= 9) ? "cbc" : "kcse"; };
+const gradeClass = (g, scale) => {
+  if (!g || g === "-") return "gNone";
+  if (scale === "cbc") return (CBC_LEVELS[g] || { cls: "gNone" }).cls;
+  return "g" + g[0];
+};
+const meanGradeFromPts = (p, scale) => {
+  if (p === null || p === undefined) return "—";
+  if (scale === "cbc") return p >= 3.5 ? "E" : p >= 2.5 ? "M" : p >= 1.5 ? "A" : "B";
+  return p >= 11.5 ? "A" : p >= 10.5 ? "A-" : p >= 9.5 ? "B+" : p >= 8.5 ? "B" : p >= 7.5 ? "B-" :
+         p >= 6.5 ? "C+" : p >= 5.5 ? "C" : p >= 4.5 ? "C-" : p >= 3.5 ? "D+" : p >= 2.5 ? "D" : "E";
+};
+const scaleLegendHtml = (scale) => scale === "cbc"
+  ? `<div class="chart-legend" style="margin-top:10px">
+      ${Object.keys(CBC_LEVELS).map(k => `<span><span class="dot" style="background:${({E:"#16a34a",M:"#0ea5e9",A:"#f59e0b",B:"#ef4444"})[k]}"></span><b>${k}</b> — ${CBC_LEVELS[k].name} (${CBC_LEVELS[k].band})</span>`).join("")}
+    </div>`
+  : `<div class="chart-legend" style="margin-top:10px"><span style="font-size:12px;color:var(--slate)">KCSE 12-point: ${KCSE_BANDS_LABEL}</span></div>`;
 const initials = (name) => (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 const typeBadge = (cat) => ({ Fees: "b-blue", Transport: "b-green", Other: "b-amber" }[cat] || "b-slate");
 const TYPE_COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#ec4899", "#0ea5e9", "#ef4444", "#14b8a6"];
@@ -33,12 +56,120 @@ async function api(url, opts = {}) {
   const cfg = { method: opts.method || "GET", headers: { "Content-Type": "application/json" } };
   if (authToken) cfg.headers["Authorization"] = "Bearer " + authToken;
   if (opts.body !== undefined) cfg.body = JSON.stringify(opts.body);
-  const res = await fetch(url, cfg);
+  let res;
+  try {
+    res = await fetch(url, cfg);
+  } catch (e) {
+    // network is unreachable — we are offline
+    if (opts.method && opts.method !== "GET") {
+      // queue the change locally; it auto-syncs when back online
+      enqueueOffline({ url, method: opts.method, body: opts.body });
+      throw new Error("You are offline — your change is saved locally and will sync automatically when you're back online");
+    }
+    throw new Error("You are offline — showing saved data");
+  }
   if (res.status === 401) { showLogin(); throw new Error("Session expired — please sign in again"); }
   let data = null;
   try { data = await res.json(); } catch (e) {}
   if (!res.ok) throw new Error((data && data.error) || ("Request failed (" + res.status + ")"));
   return data;
+}
+
+/* ============================================================
+   OFFLINE / ONLINE — offline cache via service worker,
+   local change queue, auto-sync & auto-refresh on reconnect
+   ============================================================ */
+const OFFLINE = { online: navigator.onLine !== false, pending: 0 };
+function offlineLS() {
+  try { localStorage.setItem("__ep_t", "1"); localStorage.removeItem("__ep_t"); return localStorage; }
+  catch (e) { return null; }
+}
+function loadQueue() {
+  const ls = offlineLS(); if (!ls) return [];
+  try { return JSON.parse(ls.getItem("ep_queue") || "[]"); } catch (e) { return []; }
+}
+function saveQueue(q) {
+  const ls = offlineLS(); if (!ls) return;
+  try { ls.setItem("ep_queue", JSON.stringify(q)); } catch (e) {}
+}
+function enqueueOffline(op) {
+  const q = loadQueue();
+  q.push({ ...op, qid: Date.now() + "-" + Math.random().toString(36).slice(2, 8) });
+  saveQueue(q);
+  OFFLINE.pending = q.length;
+  updateNetUI();
+  toast("Saved offline — will sync automatically when back online");
+}
+function updateNetUI() {
+  const pill = $("#net-pill");
+  if (pill) {
+    pill.className = "net-pill " + (OFFLINE.online ? "online" : "offline");
+    pill.innerHTML = `<span class="net-dot"></span> ${OFFLINE.online ? "Online" : "Offline"}<span id="net-pending">${OFFLINE.pending ? " · " + OFFLINE.pending + " pending sync" : ""}</span>`;
+  }
+  const banner = $("#offline-banner");
+  if (banner) banner.classList.toggle("hidden", OFFLINE.online);
+}
+async function flushQueue() {
+  if (!OFFLINE.online) return 0;
+  const q = loadQueue();
+  if (!q.length) return 0;
+  const failed = [];
+  for (const op of q) {
+    try {
+      const res = await fetch(op.url, {
+        method: op.method,
+        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: "Bearer " + authToken } : {}) },
+        body: JSON.stringify(op.body),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+    } catch (err) { failed.push(op); }
+  }
+  saveQueue(failed);
+  OFFLINE.pending = failed.length;
+  updateNetUI();
+  if (failed.length === 0) toast("Back online — all " + q.length + " saved change" + (q.length > 1 ? "s" : "") + " synced ✓");
+  else toast(failed.length + " change" + (failed.length > 1 ? "s" : "") + " still waiting to sync", "err");
+  return q.length - failed.length;
+}
+async function refreshAfterReconnect() {
+  try { state.settings = await api("/api/settings"); applyAppearance(); } catch (e) {}
+  const v = VIEWS[state.view];
+  if (v) v.fn($("#view"), state.params).catch(() => {});
+  toast("You're back online — data refreshed");
+}
+window.addEventListener("offline", () => {
+  OFFLINE.online = false;
+  updateNetUI();
+  toast("You are offline — using saved data", "err");
+});
+window.addEventListener("online", async () => {
+  OFFLINE.online = true;
+  updateNetUI();
+  await flushQueue();          // push queued changes
+  refreshAfterReconnect();     // auto-update the current view
+});
+// gentle connectivity check every 20s (catches flaky connections the events miss)
+setInterval(async () => {
+  const was = OFFLINE.online;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch("/api/settings", { headers: { Authorization: "Bearer " + (authToken || "") }, signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.ok && !OFFLINE.online) {
+      OFFLINE.online = true; updateNetUI(); await flushQueue(); refreshAfterReconnect();
+    } else if (!r.ok) {
+      OFFLINE.online = false; updateNetUI();
+    }
+  } catch (e) {
+    if (was) { OFFLINE.online = false; updateNetUI(); }
+  }
+}, 20000);
+// register the service worker (works on localhost/HTTPS; the sandboxed chat preview may block it — handled)
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => { /* preview sandbox may disallow SW — offline queue still works */ });
+  });
 }
 function toast(msg, type = "ok") {
   const w = $("#toast-wrap");
@@ -56,7 +187,7 @@ function emptyState(msg, hint = "", actionHtml = "") {
 }
 function timeAgo(iso) {
   if (!iso) return "—";
-  const d = new Date(iso.replace(" ", "T") + (iso.includes("T") ? "" : "Z"));
+  const d = new Date(iso.replace(" ", "T") + "Z");
   const sec = Math.floor((Date.now() - d.getTime()) / 1000);
   if (isNaN(sec) || sec < 0) return fmtDate(iso);
   if (sec < 60) return "just now";
@@ -75,7 +206,11 @@ function modal(html, wide = false) {
   $("#modal-backdrop").classList.remove("hidden");
   return $("#modal-box");
 }
-function closeModal() { $("#modal-backdrop").classList.add("hidden"); $("#modal-box").innerHTML = ""; }
+function closeModal() {
+  $("#modal-backdrop").classList.add("hidden");
+  $("#modal-box").innerHTML = "";
+  document.body.classList.remove("receipt-mode");
+}
 function exportCSV(filename, headers, rows) {
   const csv = [headers.join(","), ...rows.map(r => r.map(c =>
     '"' + String(c ?? "").replace(/"/g, '""') + '"').join(","))].join("\n");
@@ -164,6 +299,9 @@ const NAV = [
     { v: "attendance", label: "Attendance", icon: "i-calendar", roles: ["admin", "teacher"] },
     { v: "communication", label: "Communication", icon: "i-message", roles: ["admin", "accounts"] },
   ]},
+  { group: "Library", items: [
+    { v: "library", label: "Library", icon: "i-book", roles: ["admin", "teacher", "librarian"] },
+  ]},
   { group: "System", items: [{ v: "settings", label: "Settings", icon: "i-gear", roles: ["admin"] }] },
   { group: "Parent Portal", items: [
     { v: "gdash", label: "My Dashboard", icon: "i-grid", roles: ["guardian"] },
@@ -200,20 +338,23 @@ function enterApp() {
   $("#login-screen").classList.add("hidden");
   $("#app").classList.remove("hidden");
   $("#user-name").textContent = state.user.name;
-  $("#user-role").textContent = { admin: "Administrator", teacher: "Teacher", accounts: "Accounts", guardian: "Parent" }[state.user.role] || state.user.role;
+  $("#user-role").textContent = { admin: "Administrator", teacher: "Teacher", accounts: "Accounts", guardian: "Parent", librarian: "Librarian" }[state.user.role] || state.user.role;
   $("#user-avatar").innerHTML = state.user.profile_pic
     ? `<img src="${esc(state.user.profile_pic)}" alt="">`
     : esc(initials(state.user.name));
   $("#sidebar-school").textContent = state.settings.school_name;
   $("#term-badge").textContent = state.settings.current_term + " · " + state.settings.academic_year;
-  $("#version-tag").textContent = "ElimuPro · v2.6 · " + new Date().getFullYear();
+  $("#version-tag").textContent = "ElimuPro · v2.7 · " + new Date().getFullYear();
+  updateNetUI();
   document.title = state.settings.school_name + " — ElimuPro";
   applyAppearance();
   renderNav();
-  openView("dashboard");
+  openView(state.user.role === "guardian" ? "gdash" : "dashboard");
 }
 async function doLogin(username, password) {
   $("#login-error").textContent = "";
+  const card = $(".login-card");
+  card.classList.remove("shake");
   const btn = $("#login-submit");
   if (btn) { btn.disabled = true; btn.textContent = "Signing in…"; }
   try {
@@ -223,7 +364,14 @@ async function doLogin(username, password) {
     state.user = u;
     state.settings = await api("/api/settings");
     enterApp();
-  } catch (err) { $("#login-error").textContent = err.message; }
+  } catch (err) {
+    // wrong username / password — echo it clearly and shake the card
+    $("#login-error").textContent = "❌ " + err.message;
+    $("#login-password").value = "";
+    $("#login-password").focus();
+    void card.offsetWidth; // restart the animation
+    card.classList.add("shake");
+  }
   finally { if (btn) { btn.disabled = false; btn.textContent = "Sign in"; } }
 }
 $("#login-form").addEventListener("submit", (e) => { e.preventDefault(); doLogin($("#login-username").value.trim(), $("#login-password").value); });
@@ -264,6 +412,7 @@ const VIEWS = {
   transport:    { title: "Transport",        sub: "Routes, riders & daily registers", fn: view_transport },
   attendance:   { title: "Attendance",       sub: "Daily registers & summaries",   fn: view_attendance },
   communication:{ title: "Communication",    sub: "Announcements & message centre", fn: view_communication },
+  library:      { title: "Library",           sub: "Books, issues & returns",       fn: view_library },
   settings:     { title: "Settings",         sub: "School configuration & users",  fn: view_settings },
   gdash:        { title: "My Dashboard",     sub: "Your children at a glance",     fn: view_gdash },
   gresults:     { title: "Results",          sub: "Exam results & performance",    fn: view_gresults },
@@ -490,6 +639,7 @@ async function view_dashboard(el) {
     ${statCard("blue", "i-teacher", d.counts.teachers, "Teachers", d.counts.teachers + " on staff")}
     ${statCard("violet", "i-class", d.counts.classes, "Classes", d.counts.subjects + " subjects taught")}
     ${statCard("amber", "i-bus", tr.assigned, "On School Transport", tr.boarded_today + " boarded today")}
+    ${d.library ? statCard("blue", "i-book", d.library.total_titles, "Library books", d.library.issued + " issued · " + d.library.overdue + " overdue") : ""}
   </div>
 
   <div class="grid-2-1">
@@ -609,11 +759,29 @@ async function view_students(el, p) {
   const clsFilter = p && p.class_id ? String(p.class_id) : "";
   renderStudents(el, students, classes, clsFilter);
 }
-function renderStudents(el, students, classes, clsFilter = "", q = "", status = "") {
-  const rows = students.filter(s =>
+function stuRowHtml(s) {
+  return `<tr>
+    <td>${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}<b style="margin-left:8px">${esc(s.first_name + " " + (s.middle_name ? s.middle_name + " " : "") + s.last_name)}</b></td>
+    <td><span class="badge b-slate">${esc(s.admission_no)}</span></td>
+    <td>${esc(s.gender || "—")}</td>
+    <td>${s.class_name ? esc(s.class_name) : '<span class="badge b-red">Unplaced</span>'}</td>
+    <td>${esc(s.parent_name || "—")}</td>
+    <td>${esc(s.parent_phone || "—")}</td>
+    <td><span class="badge ${s.status === "Active" ? "b-green" : "b-slate"}">${esc(s.status)}</span></td>
+    <td><div class="actions">
+      <button class="ic-btn" title="View" onclick="studentDetail(${s.id})"><svg><use href="#i-eye"/></svg></button>
+      ${adminBtn(`<button class="ic-btn" title="Edit" onclick="studentForm(${s.id})"><svg><use href="#i-edit"/></svg></button>`)}
+    </div></td>
+  </tr>`;
+}
+function filterStudents(students, clsFilter, q, status) {
+  return students.filter(s =>
     (!clsFilter || String(s.class_id || "") === clsFilter) &&
     (!q || (s.first_name + " " + (s.middle_name || "") + " " + s.last_name + " " + (s.admission_no || "") + " " + (s.parent_name || "")).toLowerCase().includes(q.toLowerCase())) &&
     (!status || s.status === status));
+}
+function renderStudents(el, students, classes, clsFilter = "", q = "", status = "") {
+  const rows = filterStudents(students, clsFilter, q, status);
   el.innerHTML = `
   <div class="toolbar">
     <div class="search-wrap"><svg><use href="#i-search"/></svg>
@@ -637,26 +805,31 @@ function renderStudents(el, students, classes, clsFilter = "", q = "", status = 
   </div>
   <div class="table-wrap"><table class="tbl">
     <thead><tr><th>Student</th><th>Admission No</th><th>Gender</th><th>Class</th><th>Parent</th><th>Parent Phone</th><th>Status</th><th class="num">Actions</th></tr></thead>
-    <tbody>
-      ${rows.map(s => `
-        <tr>
-          <td>${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}<b style="margin-left:8px">${esc(s.first_name + " " + (s.middle_name ? s.middle_name + " " : "") + s.last_name)}</b></td>
-          <td><span class="badge b-slate">${esc(s.admission_no)}</span></td>
-          <td>${esc(s.gender || "—")}</td>
-          <td>${s.class_name ? esc(s.class_name) : '<span class="badge b-red">Unplaced</span>'}</td>
-          <td>${esc(s.parent_name || "—")}</td>
-          <td>${esc(s.parent_phone || "—")}</td>
-          <td><span class="badge ${s.status === "Active" ? "b-green" : "b-slate"}">${esc(s.status)}</span></td>
-          <td><div class="actions">
-            <button class="ic-btn" title="View" onclick="studentDetail(${s.id})"><svg><use href="#i-eye"/></svg></button>
-            ${adminBtn(`<button class="ic-btn" title="Edit" onclick="studentForm(${s.id})"><svg><use href="#i-edit"/></svg></button>`)}
-          </div></td>
-        </tr>`).join("")}
+    <tbody id="stu-body">
+      ${rows.map(stuRowHtml).join("")}
     </tbody></table></div>
+  <p id="stu-count" style="font-size:12px;color:var(--muted);margin-top:10px">${rows.length} student${rows.length === 1 ? "" : "s"} shown</p>
   ${rows.length === 0 ? '<div class="empty">No students match the filters</div>' : ""}`;
-  $("#stu-q").addEventListener("input", e => renderStudents(el, students, classes, clsFilter, e.target.value, status));
-  $("#stu-class").addEventListener("change", e => renderStudents(el, students, classes, e.target.value, q, status));
-  $("#stu-status").addEventListener("change", e => renderStudents(el, students, classes, clsFilter, q, e.target.value));
+  // keep the toolbar stable — only the tbody re-renders on filter changes, so typing/search focus is preserved
+  $("#stu-q").addEventListener("input", e => {
+    const rows2 = filterStudents(students, clsFilter, e.target.value, status);
+    $("#stu-body").innerHTML = rows2.map(stuRowHtml).join("");
+    $("#stu-count").textContent = rows2.length + " student" + (rows2.length === 1 ? "" : "s") + " shown";
+    if (!rows2.length) $("#stu-count").insertAdjacentHTML("afterend", '<div class="empty">No students match the filters</div>');
+    else { const em = $("#stu-count").nextElementSibling; if (em && em.classList.contains("empty")) em.remove(); }
+  });
+  $("#stu-class").addEventListener("change", e => {
+    clsFilter = e.target.value;
+    const rows2 = filterStudents(students, clsFilter, $("#stu-q").value, status);
+    $("#stu-body").innerHTML = rows2.map(stuRowHtml).join("");
+    $("#stu-count").textContent = rows2.length + " student" + (rows2.length === 1 ? "" : "s") + " shown";
+  });
+  $("#stu-status").addEventListener("change", e => {
+    status = e.target.value;
+    const rows2 = filterStudents(students, clsFilter, $("#stu-q").value, status);
+    $("#stu-body").innerHTML = rows2.map(stuRowHtml).join("");
+    $("#stu-count").textContent = rows2.length + " student" + (rows2.length === 1 ? "" : "s") + " shown";
+  });
 }
 async function studentForm(id) {
   const classes = await api("/api/classes");
@@ -774,7 +947,7 @@ async function promoteClass() {
   modal(`
   <div class="modal-head"><h3>Promote a class</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
   <div class="modal-body">
-    <p style="font-size:13px;color:var(--slate);margin-bottom:14px">Move <b>every student</b> from one class into another for the current term — e.g. Grade 1 East → Grade 2 East at the start of a new year.</p>
+    <p style="font-size:13px;color:var(--slate);margin-bottom:14px">Move <b>every student</b> from one class into another for the <b>whole academic year</b> — e.g. Grade 1 East → Grade 2 East at the start of a new year.</p>
     <div class="form-grid">
       <div><label>From class</label><select id="pm-from" class="input">
         ${classes.map(c => `<option value="${c.id}">${esc(c.name)} (${c.cnt} students)</option>`).join("")}
@@ -783,7 +956,10 @@ async function promoteClass() {
         ${classes.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
       </select></div>
     </div>
-    <p class="full" style="font-size:12px;color:var(--muted);margin-top:8px">Existing enrollments for the current term are reassigned. Timetables, fees and results are not affected.</p>
+    <div class="full" style="background:var(--green-50);border:1px solid var(--green-100);border-radius:9px;padding:10px 12px;margin-top:8px">
+      <b style="font-size:13px;color:var(--green-dark)">✓ The class being left becomes completely empty</b>
+      <p style="font-size:12px;color:var(--slate);margin-top:3px">All three terms are reassigned to the target class, so no student stays behind and there are no mix-ups. The empty class is ready for a fresh intake. Timetables, fees and results are not affected.</p>
+    </div>
   </div>
   <div class="modal-foot">
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
@@ -808,7 +984,8 @@ async function studentDetail(id) {
   const totalPaid = (d.payments || []).reduce((a, p) => a + p.amount, 0);
   const tr = d.transport && d.transport[0];
   const name = d.first_name + " " + (d.middle_name ? d.middle_name + " " : "") + d.last_name;
-  const mg = latest ? (latest.avg_pts >= 11.5 ? "A" : latest.avg_pts >= 10.5 ? "A-" : latest.avg_pts >= 9.5 ? "B+" : latest.avg_pts >= 8.5 ? "B" : latest.avg_pts >= 7.5 ? "B-" : latest.avg_pts >= 6.5 ? "C+" : latest.avg_pts >= 5.5 ? "C" : latest.avg_pts >= 4.5 ? "C-" : latest.avg_pts >= 3.5 ? "D+" : latest.avg_pts >= 2.5 ? "D" : "E") : null;
+  const dScale = perf ? (perf.scale || "kcse") : "kcse";
+  const mg = latest ? meanGradeFromPts(latest.avg_pts, dScale) : null;
   modal(`
   <div class="modal-head"><h3 style="display:flex;align-items:center;gap:10px">${avatarHtml(d.profile_pic, name, "avatar-sm")} ${esc(name)}</h3>
     <button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
@@ -835,7 +1012,7 @@ async function studentDetail(id) {
     ${latest ? `
       <div class="kgrid" style="grid-template-columns:repeat(4,1fr)">
         <div class="kpi"><div class="k">Mean</div><div class="v">${fmtNum(latest.mean)}</div></div>
-        <div class="kpi"><div class="k">Mean grade</div><div class="v"><span class="grade-pill ${gradeClass(mg)}">${mg || "—"}</span></div></div>
+        <div class="kpi"><div class="k">${dScale === "cbc" ? "Level" : "Mean grade"}</div><div class="v"><span class="grade-pill ${gradeClass(mg, dScale)}">${mg || "—"}</span></div></div>
         <div class="kpi"><div class="k">Class rank</div><div class="v" style="font-size:15px">${perf.class_rank || "—"} / ${perf.class_size || "—"}</div></div>
         <div class="kpi"><div class="k">Subjects</div><div class="v" style="font-size:15px">${latest.subjects}</div></div>
       </div>` : '<p style="color:var(--muted)">No exam results yet.</p>'}
@@ -1060,20 +1237,56 @@ async function deleteClass(cid, name) {
 async function view_subjects(el) {
   const subjects = await api("/api/subjects");
   el.innerHTML = `
-  <div class="toolbar">
-    <p style="color:var(--muted)">${subjects.length} subjects</p><div class="grow"></div>
-    ${adminBtn(`<button class="btn btn-outline" onclick="subjectForm()"><svg><use href="#i-plus"/></svg> Add Subject</button>`)}
+  <div class="tab-row">
+    <button class="tab-btn active" id="sub-tab-list">Subjects</button>
+    <button class="tab-btn" id="sub-tab-cur">Curriculum guide (CBC)</button>
   </div>
-  <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>Code</th><th>Subject</th><th>Category</th><th>Subject Teacher</th>${adminBtn('<th class="num">Actions</th>')}</tr></thead>
-    <tbody>${subjects.map(s => `
-      <tr><td><span class="badge b-violet">${esc(s.code)}</span></td>
-        <td><b>${esc(s.name)}</b></td>
-        <td><span class="badge b-blue">${esc(s.category || "—")}</span></td>
-        <td>${s.t_first ? esc(s.t_first + " " + s.t_last) : "—"}</td>
-        ${adminBtn(`<td><div class="actions"><button class="ic-btn" onclick="subjectForm(${s.id})"><svg><use href="#i-edit"/></svg></button></div></td>`)}
-      </tr>`).join("")}
-    </tbody></table></div>`;
+  <div id="sub-body"></div>`;
+  const renderList = () => {
+    $("#sub-body").innerHTML = `
+    <div class="toolbar">
+      <p style="color:var(--muted)">${subjects.length} subjects across the CBC curriculum</p><div class="grow"></div>
+      ${adminBtn(`<button class="btn btn-outline" onclick="subjectForm()"><svg><use href="#i-plus"/></svg> Add Subject</button>`)}
+    </div>
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Code</th><th>Subject</th><th>Category</th><th>Taught in</th><th>Subject Teacher</th>${adminBtn('<th class="num">Actions</th>')}</tr></thead>
+      <tbody>${subjects.map(s => `
+        <tr><td><span class="badge b-violet">${esc(s.code)}</span></td>
+          <td><b>${esc(s.name)}</b></td>
+          <td><span class="badge ${catBadge(s.category)}">${esc(s.category || "—")}</span></td>
+          <td><span class="badge ${bandOf(s.grades).cls}">${esc(bandOf(s.grades).label)}</span></td>
+          <td>${s.t_first ? esc(s.t_first + " " + s.t_last) : "—"}</td>
+          ${adminBtn(`<td><div class="actions"><button class="ic-btn" onclick="subjectForm(${s.id})"><svg><use href="#i-edit"/></svg></button></div></td>`)}
+        </tr>`).join("")}
+      </tbody></table></div>
+    <p style="font-size:12px;color:var(--muted);margin-top:10px">The subject list follows the <b>Kenyan Competency-Based Curriculum (CBC)</b>. Each subject is taught only in the grades shown.</p>`;
+  };
+  const renderCur = async () => {
+    $("#sub-body").innerHTML = '<div class="loader"><div class="spinner"></div><p>Loading curriculum…</p></div>';
+    const bands = await api("/api/curriculum");
+    $("#sub-body").innerHTML = `
+      <p style="font-size:13px;color:var(--slate);margin-bottom:14px">
+        The current <b>Kenyan Competency-Based Curriculum (CBC)</b> structures learning into four bands.
+        Grades 1–9 use <b>CBC achievement levels</b> (E, M, A, B); Grades 10–12 (Senior School) use the <b>KCSE 12-point scale</b>.</p>
+      <div class="grid-2">
+      ${bands.map(b => `
+        <div class="card">
+          <div class="card-head"><h3>${esc(b.label)}</h3><span class="badge b-blue">${esc(b.grades)}</span></div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Grading: <b>${esc(b.scale)}</b></p>
+          <div style="display:flex;flex-wrap:wrap;gap:7px">
+            ${b.subjects.map(s => `<span class="badge ${catBadge(s.category)}">${esc(s.name)}</span>`).join("")}
+          </div>
+        </div>`).join("")}
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-head"><h3>How grades work (${esc(state.settings.current_term || "Term")})</h3></div>
+        ${scaleLegendHtml("cbc")}
+        ${scaleLegendHtml("kcse")}
+      </div>`;
+  };
+  $("#sub-tab-list").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#sub-tab-list").classList.add("active"); renderList(); });
+  $("#sub-tab-cur").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#sub-tab-cur").classList.add("active"); renderCur(); });
+  renderList();
 }
 async function subjectForm(id) {
   const teachers = await api("/api/teachers");
@@ -1091,12 +1304,14 @@ async function subjectForm(id) {
     <div><label>Subject Teacher</label><select id="f-teacher"><option value="">— none —</option>
       ${teachers.map(t => `<option value="${t.id}" ${String(s.teacher_id) === String(t.id) ? "selected" : ""}>${esc(t.first_name + " " + t.last_name)}</option>`).join("")}
     </select></div>
+    <div class="full"><label>Taught in grades (CBC)</label><input id="f-grades" value="${esc(s.grades || "1,2,3,4,5,6,7,8,9,10,11,12")}" placeholder="e.g. 7,8,9"></div>
   </div></div>
   <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" id="s-save">Save Subject</button></div>`);
   $("#s-save").addEventListener("click", async () => {
     const body = { name: $("#f-name").value.trim(), code: $("#f-code").value.trim(),
-      category: $("#f-cat").value, teacher_id: $("#f-teacher").value };
+      category: $("#f-cat").value, teacher_id: $("#f-teacher").value,
+      grades: $("#f-grades").value.trim() };
     if (!body.name || !body.code) { toast("Name and code required", "err"); return; }
     try {
       if (id) { await api("/api/subjects/" + id, { method: "PUT", body }); toast("Subject updated"); }
@@ -1181,6 +1396,8 @@ async function view_examDetail(el, params) {
   });
   if (!classId) return;
   const m = await api(`/api/exams/${examId}/marks?class_id=${classId}`);
+  const clsObj = d.classes.find(c => String(c.id) === String(classId));
+  const scale = scaleForGrade(clsObj ? clsObj.name : "Grade 7");
   $("#md-body").innerHTML = `
     <div class="card" style="padding:0;overflow:auto">
       <table class="tbl marks-table" style="min-width:${420 + m.subjects.length * 92}px">
@@ -1206,7 +1423,9 @@ async function view_examDetail(el, params) {
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:10px">Grades use the KCSE 12-point scale (A = 80+, A- = 75+, B+ = 70+, … E = below 30). Scores auto-grade; click <b>Save Marks</b> to persist changes.</p>`;
+    <p style="font-size:12px;color:var(--muted);margin-top:10px">${scale === "cbc"
+      ? "This class uses the <b>Kenyan CBC achievement levels</b> — E = Exceeding (80%+), M = Meeting (65%+), A = Approaching (50%+), B = Below (under 50%)."
+      : "This class uses the <b>KCSE 12-point scale</b> — A (80+) · A- (75+) · B+ (70+) · … · E (below 30)."} Scores auto-grade; click <b>Save Marks</b> to persist changes.</p>`;
   const dirty = new Set();
   $$(".marks-table input").forEach(inp => {
     inp.addEventListener("input", () => {
@@ -1225,9 +1444,11 @@ async function view_examDetail(el, params) {
     });
     $("#mean-" + st).textContent = cnt ? fmtNum(total / cnt) : "—";
     const avg = cnt ? total / cnt : null;
-    const g = avg === null ? "" : (avg >= 80 ? "A" : avg >= 75 ? "A-" : avg >= 70 ? "B+" : avg >= 65 ? "B" : avg >= 60 ? "B-" : avg >= 55 ? "C+" : avg >= 50 ? "C" : avg >= 45 ? "C-" : avg >= 40 ? "D+" : avg >= 35 ? "D" : avg >= 30 ? "D-" : "E");
+    const g = avg === null ? "" : scale === "cbc"
+      ? (avg >= 80 ? "E" : avg >= 65 ? "M" : avg >= 50 ? "A" : "B")
+      : (avg >= 80 ? "A" : avg >= 75 ? "A-" : avg >= 70 ? "B+" : avg >= 65 ? "B" : avg >= 60 ? "B-" : avg >= 55 ? "C+" : avg >= 50 ? "C" : avg >= 45 ? "C-" : avg >= 40 ? "D+" : avg >= 35 ? "D" : avg >= 30 ? "D-" : "E");
     const pill = $("#gp-" + st);
-    if (g) { pill.textContent = g; pill.className = "grade-pill " + gradeClass(g); }
+    if (g) { pill.textContent = g; pill.className = "grade-pill " + gradeClass(g, scale); }
     else { pill.textContent = "—"; pill.className = "grade-pill gNone"; }
   }
   const saveBtn = $("#md-save");
@@ -1276,7 +1497,8 @@ async function view_analytics(el, params) {
   </div>
 
   <div class="grid-2">
-    <div class="card"><div class="card-head"><h3>Grade distribution</h3><p>Mean grade spread</p></div><div id="an-grade"></div></div>
+    <div class="card"><div class="card-head"><h3>Grade distribution</h3><p>Mean grade spread</p></div>
+      <div id="an-grade"></div><div id="an-grade-legend"></div></div>
     <div class="card"><div class="card-head"><h3>Gender performance</h3><p>Average mean score</p></div><div id="an-gender"></div></div>
   </div>
 
@@ -1298,7 +1520,7 @@ async function view_analytics(el, params) {
           <td><span class="badge b-slate">${esc(r.admission_no)}</span></td>
           <td class="pill-link" onclick="studentDetail(${r.student_id})">${esc(r.name)}</td><td>${esc(r.class_name)}</td>
           <td class="num"><b>${fmtNum(r.mean)}</b></td>
-          <td><span class="grade-pill ${gradeClass(r.mean_grade)}">${esc(r.mean_grade)}</span></td>
+          <td><span class="grade-pill ${gradeClass(r.mean_grade, r.scale)}">${esc(r.mean_grade)}</span></td>
           <td class="num">${r.class_pos}/${r.class_size}</td></tr>`).join("")}
     </tbody></table></div>
 
@@ -1310,9 +1532,16 @@ async function view_analytics(el, params) {
     <thead><tr><th>#</th><th>Adm No</th><th>Student</th><th>Class</th><th class="num">Mean</th><th>Mean Grade</th><th class="num">Class Pos</th><th class="num">Points</th></tr></thead>
     <tbody id="an-body">${rankedRows(x.ranked)}</tbody></table></div>`;
 
+  const hasCBC = x.ranked.some(r => r.scale === "cbc");
+  const hasKCSE = x.ranked.some(r => r.scale === "kcse");
+  let legendHtml = "";
+  if (hasCBC) legendHtml += scaleLegendHtml("cbc");
+  if (hasKCSE) legendHtml += scaleLegendHtml("kcse");
+  $("#an-grade-legend").innerHTML = legendHtml;
   vbarChart($("#an-grade"), x.grade_dist.filter(g => g.count > 0).map(g => ({
     label: g.grade, value: g.count,
-    color: g.grade[0] === "A" ? "#16a34a" : g.grade[0] === "B" ? "#4ade80" : g.grade[0] === "C" ? "#f59e0b" : g.grade[0] === "D" ? "#f97316" : "#ef4444" })), { height: 180, valueFmt: n => n });
+    color: g.grade === "E" ? "#16a34a" : g.grade === "M" ? "#0ea5e9" : g.grade === "A" ? "#f59e0b" : g.grade === "B" ? "#ef4444"
+      : g.grade[0] === "A" ? "#16a34a" : g.grade[0] === "B" ? "#4ade80" : g.grade[0] === "C" ? "#f59e0b" : g.grade[0] === "D" ? "#f97316" : "#ef4444" })), { height: 180, valueFmt: n => n });
   donut($("#an-gender"), x.gender_perf.map(g => ({
     label: g.gender, value: g.mean, color: g.gender === "Male" ? "#2563eb" : "#ec4899" })));
   $("#an-subjects").innerHTML = x.subject_means.map(s => `
@@ -1337,7 +1566,7 @@ function rankedRows(rows) {
       <td class="pill-link" onclick="studentDetail(${r.student_id})">${esc(r.name)}</td>
       <td>${esc(r.class_name)}</td>
       <td class="num"><b>${fmtNum(r.mean)}</b></td>
-      <td><span class="grade-pill ${gradeClass(r.mean_grade)}">${esc(r.mean_grade)}</span></td>
+      <td><span class="grade-pill ${gradeClass(r.mean_grade, r.scale)}" title="${esc(r.scale === "cbc" ? (CBC_LEVELS[r.mean_grade] || {}).name || "" : r.mean_grade)}">${esc(r.mean_grade)}</span></td>
       <td class="num">${r.class_pos}/${r.class_size}</td>
       <td class="num">${r.total_points}</td></tr>`).join("");
 }
@@ -1369,7 +1598,8 @@ async function view_reportcard(el, params) {
     const d = await api(`/api/analytics/student/${sid}?exam_id=${eid}`);
     const s = d.student, agg = d.agg, ex = d.selected_exam;
     if (!agg) { $("#rc-area").innerHTML = '<div class="empty">No results for this student in the selected exam.</div>'; return; }
-    const meanGrade = agg.avg_pts >= 11.5 ? "A" : agg.avg_pts >= 10.5 ? "A-" : agg.avg_pts >= 9.5 ? "B+" : agg.avg_pts >= 8.5 ? "B" : agg.avg_pts >= 7.5 ? "B-" : agg.avg_pts >= 6.5 ? "C+" : agg.avg_pts >= 5.5 ? "C" : agg.avg_pts >= 4.5 ? "C-" : agg.avg_pts >= 3.5 ? "D+" : agg.avg_pts >= 2.5 ? "D" : "E";
+    const scale = d.scale || scaleForGrade(s.class ? s.class.grade : "Grade 7");
+    const meanGrade = meanGradeFromPts(agg.avg_pts, scale);
     const set = state.settings || {};
     const comments = await api(`/api/exams/${eid}/comments`);
     const savedComment = comments[sid] || "";
@@ -1400,17 +1630,21 @@ async function view_reportcard(el, params) {
           ${d.per_subject.map((p, i) => `
             <tr><td>${i + 1}</td><td><b>${esc(p.name)}</b></td>
             <td class="num">${fmtNum(p.score)}</td>
-            <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade)}">${esc(p.grade)}</span></td>
+            <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade, scale)}" title="${esc(scale === "cbc" ? (CBC_LEVELS[p.grade] || {}).name || "" : p.grade)}">${esc(p.grade)}</span></td>
             <td class="num">${p.points}</td>
             <td class="num">${fmtNum(p.subject_mean)}</td></tr>`).join("")}
         </tbody>
       </table>
       <div class="r-summary">
         <div class="box"><b>${fmtNum(agg.mean)}</b><span>Mean Score</span></div>
-        <div class="box"><b>${meanGrade}</b><span>Mean Grade</span></div>
-        <div class="box"><b>${agg.total_points}</b><span>Total Points</span></div>
+        <div class="box"><b>${meanGrade}</b><span>${scale === "cbc" ? "Achievement Level" : "Mean Grade"}</span></div>
+        <div class="box"><b>${agg.total_points}</b><span>${scale === "cbc" ? "Level Points" : "Total Points"}</span></div>
         <div class="box"><b>${d.class_rank || "—"} / ${d.class_size || "—"}</b><span>Class Position</span></div>
       </div>
+      <p style="font-size:10.5px;color:var(--slate);text-align:center;margin-top:4px">
+        ${scale === "cbc"
+          ? "CBC Achievement Levels: E = Exceeding (80%+) · M = Meeting (65%+) · A = Approaching (50%+) · B = Below (under 50%)"
+          : "KCSE 12-point scale: " + KCSE_BANDS_LABEL}</p>
       <p style="font-size:12.5px"><b>Teacher's comment:</b></p>
       <div class="r-comment">${esc(savedComment || "A good performance. Keep working hard. — " + (set.school_name || "School"))}</div>
       <div class="r-sign">
@@ -1762,6 +1996,11 @@ async function feeStructureForm() {
    ============================================================ */
 async function view_transport(el, params) {
   const sum = await api("/api/transport/summary");
+  const tabBtns = [
+    '<button class="tab-btn active" id="tp-tab-routes">Routes</button>',
+    can("admin") ? '<button class="tab-btn" id="tp-tab-assign">Assignments</button>' : "",
+    can("admin", "teacher") ? '<button class="tab-btn" id="tp-tab-register">Daily Register</button>' : "",
+  ].join("");
   el.innerHTML = `
   <div class="stat-grid">
     ${statCard("green", "i-bus", sum.total_assigned, "Students on Transport", sum.routes.length + " active routes")}
@@ -1769,22 +2008,22 @@ async function view_transport(el, params) {
     ${statCard("amber", "i-money", fmtMoney(sum.monthly_fees), "Monthly Transport Fees", "added to student billing")}
     ${statCard("violet", "i-calendar", sum.routes.reduce((a, r) => a + r.boarded, 0), "Today's Boardings", "morning + evening")}
   </div>
-  <div class="tab-row">
-    <button class="tab-btn active" id="tp-tab-routes">Routes</button>
-    <button class="tab-btn" id="tp-tab-assign">Assignments</button>
-    <button class="tab-btn" id="tp-tab-register">Daily Register</button>
-  </div>
+  <div class="tab-row">${tabBtns}</div>
   <div id="tp-body"></div>`;
   const tabs = { routes: viewRoutes, assign: viewAssignments, register: viewRegister };
-  const setTab = (name) => {
+  const setTab = (name, routeId) => {
     $$(".tab-btn").forEach(b => b.classList.remove("active"));
-    $("#tp-tab-" + name).classList.add("active");
-    tabs[name]();
+    const btn = $("#tp-tab-" + name);
+    if (btn) btn.classList.add("active");
+    if (name === "assign") viewAssignments(routeId);
+    else if (name === "register") viewRegister(routeId);
+    else viewRoutes();
   };
-  $("#tp-tab-routes").addEventListener("click", () => setTab("routes"));
-  $("#tp-tab-assign").addEventListener("click", () => setTab("assign"));
-  $("#tp-tab-register").addEventListener("click", () => setTab("register"));
-  viewRoutes();
+  const rBtn = $("#tp-tab-routes"); if (rBtn) rBtn.addEventListener("click", () => setTab("routes"));
+  const aBtn = $("#tp-tab-assign"); if (aBtn) aBtn.addEventListener("click", () => setTab("assign"));
+  const gBtn = $("#tp-tab-register"); if (gBtn) gBtn.addEventListener("click", () => setTab("register"));
+  const startTab = params.tab === "assign" && can("admin") ? "assign" : params.tab === "register" && can("admin", "teacher") ? "register" : "routes";
+  setTab(startTab, params.routeId);
 }
 async function viewRoutes() {
   const routes = await api("/api/transport/routes");
@@ -1807,18 +2046,10 @@ async function viewRoutes() {
         <div class="progress" style="margin-top:8px"><div style="width:${Math.min(100, r.assigned / r.capacity * 100)}%"></div></div>
         <div style="display:flex;gap:8px;margin-top:12px">
           ${adminBtn(`<button class="btn btn-outline btn-sm" onclick="routeForm(${r.id})"><svg><use href="#i-edit"/></svg> Edit</button>`)}
-          <button class="btn btn-outline btn-sm" onclick="setTransportTab('assign',${r.id})">Assign riders</button>
+          <button class="btn btn-outline btn-sm" onclick="openView('transport',{tab:'assign',routeId:${r.id}})">Assign riders</button>
         </div>
       </div>`).join("") || '<div class="empty">No routes yet</div>'}
   </div>`;
-}
-function setTransportTab(tab, routeId) {
-  openView("transport");
-  setTimeout(() => {
-    const btn = $("#tp-tab-" + tab);
-    if (btn) btn.click();
-    if (tab === "assign" && routeId) setTimeout(() => { const sel = $("#tp-route"); if (sel) sel.value = routeId; }, 200);
-  }, 60);
 }
 async function routeForm(id) {
   const all = await api("/api/transport/routes");
@@ -1853,10 +2084,11 @@ async function routeForm(id) {
     } catch (err) { toast(err.message, "err"); }
   });
 }
-async function viewAssignments() {
+async function viewAssignments(presetRouteId) {
   const routes = await api("/api/transport/routes");
   const active = routes.find(r => r.status === "Active");
-  const sel = $("#tp-route") ? $("#tp-route").value : (active ? active.id : "");
+  const prev = $("#tp-route") ? $("#tp-route").value : "";
+  const sel = presetRouteId || prev || (active ? active.id : "");
   $("#tp-body").innerHTML = `
   <div class="toolbar">
     <select class="input" id="tp-route" style="min-width:240px">
@@ -1867,7 +2099,7 @@ async function viewAssignments() {
     ${adminBtn(`<button class="btn btn-primary" id="tp-save"><svg><use href="#i-download"/></svg> Save Assignments</button>`)}
   </div>
   <div id="tp-assign-body"><div class="loader"><div class="spinner"></div><p>Loading students…</p></div></div>`;
-  $("#tp-route").addEventListener("change", e => viewAssignments());
+  $("#tp-route").addEventListener("change", e => viewAssignments(e.target.value));
   await loadAssignBody();
   async function loadAssignBody() {
     const rid = $("#tp-route").value;
@@ -1906,14 +2138,15 @@ async function viewAssignments() {
     } catch (err) { toast(err.message, "err"); }
   });
 }
-async function viewRegister() {
+async function viewRegister(presetRouteId) {
   const routes = await api("/api/transport/routes");
   const today = new Date().toISOString().slice(0, 10);
+  if (presetRouteId) { state.trRoute = presetRouteId; }
   $("#tp-body").innerHTML = `
   <div class="toolbar">
     <select class="input" id="tr-route" style="min-width:220px">
       <option value="">— select route —</option>
-      ${routes.filter(r => r.status === "Active").map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join("")}
+      ${routes.filter(r => r.status === "Active").map(r => `<option value="${r.id}" ${String(state.trRoute) === String(r.id) ? "selected" : ""}>${esc(r.name)}</option>`).join("")}
     </select>
     <input type="date" class="input" id="tr-date" value="${today}">
     <select class="input" id="tr-period">
@@ -1968,6 +2201,14 @@ async function viewRegister() {
    ============================================================ */
 const catBadge = (c) => ({ Core: "b-green", Languages: "b-blue", Sciences: "b-violet",
   Humanities: "b-amber", Technical: "b-slate", Creative: "b-red" }[c] || "b-slate");
+const bandOf = (grades) => {
+  const gs = String(grades || "").split(",").map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+  if (gs.some(g => g >= 10)) return { label: "Senior (G10–12)", cls: "b-violet" };
+  if (gs.some(g => g >= 7)) return { label: "Junior Sec (G7–9)", cls: "b-blue" };
+  if (gs.some(g => g >= 4)) return { label: "Upper Primary (G4–6)", cls: "b-green" };
+  if (gs.some(g => g >= 1)) return { label: "Lower Primary (G1–3)", cls: "b-amber" };
+  return { label: "All grades", cls: "b-slate" };
+};
 
 async function view_timetable(el, params) {
   const classes = await api("/api/classes");
@@ -2132,6 +2373,7 @@ function amountInWords(amount) {
   return w + " Only";
 }
 async function showReceipt(pid) {
+  document.body.classList.add("receipt-mode");
   const d = await api("/api/finance/receipt/" + pid);
   const p = d.payment, st = d.student, s = d.settings, cl = d.class;
   const schName = s.school_name || "School";
@@ -2139,7 +2381,7 @@ async function showReceipt(pid) {
   modal(`
   <div class="modal-head no-print"><h3>Receipt ${esc(p.receipt_no)}</h3>
     <div style="display:flex;gap:8px">
-      <button class="btn btn-primary btn-sm" onclick="window.print()"><svg><use href="#i-print"/></svg> Print receipt</button>
+      <button class="btn btn-primary btn-sm" onclick="printReceipt()"><svg><use href="#i-print"/></svg> Print receipt</button>
       <button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button>
     </div></div>
   <div class="modal-body" style="background:#e5e7eb">
@@ -2195,6 +2437,30 @@ async function showReceipt(pid) {
       <div class="r-footnote">This is a computer-generated receipt and does not require a physical signature. Please keep it for your records.</div>
     </div>
   </div>`);
+}
+
+
+function printReceipt() {
+  const sheet = document.getElementById("receipt-sheet");
+  if (!sheet) { toast("Receipt not ready", "err"); return; }
+  let f = document.getElementById("print-frame");
+  if (!f) {
+    f = document.createElement("iframe");
+    f.id = "print-frame";
+    f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+    document.body.appendChild(f);
+  }
+  // clone the sheet and absolutize image srcs so the logo loads inside the print frame
+  const clone = sheet.cloneNode(true);
+  clone.querySelectorAll("img").forEach(img => {
+    if (img.src && img.src.startsWith("/")) img.src = location.origin + img.src;
+  });
+  const doc = f.contentDocument;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt</title>${RECEIPT_CSS}</head><body>${clone.outerHTML}</body></html>`);
+  doc.close();
+  f.contentWindow.focus();
+  setTimeout(() => f.contentWindow.print(), 120);
 }
 
 /* ============================================================
@@ -2345,6 +2611,229 @@ async function view_communication(el) {
 }
 
 /* ============================================================
+   LIBRARY — books, issues & returns
+   ============================================================ */
+const canLib = () => can("admin", "librarian");
+
+async function view_library(el, params) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading library…</p></div>`;
+  const sum = await api("/api/library/summary");
+  el.innerHTML = `
+  <div class="stat-grid">
+    ${statCard("blue", "i-book", sum.total_titles, "Book titles", sum.total_copies + " copies total")}
+    ${statCard("green", "i-book", sum.available, "Available copies", "ready to borrow")}
+    ${statCard("amber", "i-book", sum.issued, "Currently issued", "with students")}
+    ${statCard("red", "i-book", sum.overdue, "Overdue", "need follow-up")}
+  </div>
+  <div class="tab-row">
+    <button class="tab-btn active" id="lib-tab-books">Books</button>
+    <button class="tab-btn" id="lib-tab-issues">Issues & returns</button>
+  </div>
+  <div id="lib-body"></div>`;
+  const showBooks = () => renderBooks();
+  const showIssues = () => renderIssues();
+  $("#lib-tab-books").addEventListener("click", () => {
+    $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#lib-tab-books").classList.add("active"); showBooks();
+  });
+  $("#lib-tab-issues").addEventListener("click", () => {
+    $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#lib-tab-issues").classList.add("active"); showIssues();
+  });
+  (params.tab === "issues" ? showIssues : showBooks)();
+}
+
+async function renderBooks() {
+  const books = await api("/api/library/books");
+  const cats = [...new Set(books.map(b => b.category))].sort();
+  const stBadge = (b) => b.status === "Out" ? '<span class="badge b-red">All out</span>'
+    : b.status === "Low" ? '<span class="badge b-amber">Low (' + b.available_copies + ' left)</span>'
+    : '<span class="badge b-green">Available</span>';
+  $("#lib-body").innerHTML = `
+  <div class="toolbar">
+    <div class="search-wrap"><svg><use href="#i-search"/></svg><input class="input" id="lib-q" placeholder="Search title, author, ISBN…"></div>
+    <select class="input" id="lib-cat"><option value="">All categories</option>
+      ${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select>
+    <div class="grow"></div>
+    ${canLib() ? `<button class="btn btn-outline" onclick="bookForm()"><svg><use href="#i-plus"/></svg> Add Book</button>` : ""}
+  </div>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Title</th><th>Author</th><th>Category</th><th>ISBN</th><th>Shelf</th><th class="num">Copies</th><th class="num">Out</th><th>Status</th>${canLib() ? '<th class="num">Actions</th>' : ""}</tr></thead>
+    <tbody id="lib-body2">
+      ${books.map(b => `
+        <tr>
+          <td><b>${esc(b.title)}</b></td>
+          <td>${esc(b.author || "—")}</td>
+          <td><span class="badge ${catBadge(b.category)}">${esc(b.category)}</span></td>
+          <td><small>${esc(b.isbn || "—")}</small></td>
+          <td><span class="badge b-slate">${esc(b.shelf || "—")}</span></td>
+          <td class="num">${b.available_copies} / ${b.total_copies}</td>
+          <td class="num">${b.out_count}</td>
+          <td>${stBadge(b)}</td>
+          ${canLib() ? `<td><div class="actions">
+            <button class="ic-btn" title="Issue to student" onclick="issueForm(${b.id})"><svg><use href="#i-book"/></svg></button>
+            <button class="ic-btn" title="Edit" onclick="bookForm(${b.id})"><svg><use href="#i-edit"/></svg></button>
+            <button class="ic-btn" title="Delete" onclick="deleteBook(${b.id},'${esc(b.title)}')"><svg><use href="#i-close"/></svg></button>
+          </div></td>` : ""}
+        </tr>`).join("")}
+    </tbody></table></div>
+  ${books.length === 0 ? '<div class="empty">No books in the catalogue yet</div>' : ""}`;
+  const filter = () => {
+    const q = $("#lib-q").value.toLowerCase();
+    const cat = $("#lib-cat").value;
+    const rows = books.filter(b =>
+      (!q || (b.title + " " + (b.author || "") + " " + (b.isbn || "")).toLowerCase().includes(q)) &&
+      (!cat || b.category === cat));
+    $("#lib-body2").innerHTML = rows.map(b => `
+      <tr>
+        <td><b>${esc(b.title)}</b></td>
+        <td>${esc(b.author || "—")}</td>
+        <td><span class="badge ${catBadge(b.category)}">${esc(b.category)}</span></td>
+        <td><small>${esc(b.isbn || "—")}</small></td>
+        <td><span class="badge b-slate">${esc(b.shelf || "—")}</span></td>
+        <td class="num">${b.available_copies} / ${b.total_copies}</td>
+        <td class="num">${b.out_count}</td>
+        <td>${stBadge(b)}</td>
+        ${canLib() ? `<td><div class="actions">
+          <button class="ic-btn" title="Issue to student" onclick="issueForm(${b.id})"><svg><use href="#i-book"/></svg></button>
+          <button class="ic-btn" title="Edit" onclick="bookForm(${b.id})"><svg><use href="#i-edit"/></svg></button>
+          <button class="ic-btn" title="Delete" onclick="deleteBook(${b.id},'${esc(b.title)}')"><svg><use href="#i-close"/></svg></button>
+        </div></td>` : ""}
+      </tr>`).join("");
+  };
+  $("#lib-q").addEventListener("input", filter);
+  $("#lib-cat").addEventListener("change", filter);
+}
+
+async function renderIssues(statusFilter) {
+  const issues = await api("/api/library/issues");
+  const stBadge = (s) => s === "Returned" ? '<span class="badge b-slate">Returned</span>'
+    : s === "Overdue" ? '<span class="badge b-red">Overdue</span>'
+    : '<span class="badge b-green">Issued</span>';
+  $("#lib-body").innerHTML = `
+  <div class="toolbar">
+    <select class="input" id="iss-status" style="min-width:160px">
+      <option value="">All statuses</option>
+      <option value="Issued" ${statusFilter === "Issued" ? "selected" : ""}>Currently issued</option>
+      <option value="Overdue" ${statusFilter === "Overdue" ? "selected" : ""}>Overdue</option>
+      <option value="Returned" ${statusFilter === "Returned" ? "selected" : ""}>Returned</option>
+    </select>
+    <span class="badge b-blue">${issues.length} records</span>
+    <div class="grow"></div>
+  </div>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Book</th><th>Student</th><th>Class</th><th>Issued</th><th>Due</th><th>Returned</th><th>Status</th><th>By</th>${canLib() ? '<th class="num">Action</th>' : ""}</tr></thead>
+    <tbody>
+      ${issues.filter(i => !statusFilter || i.status === statusFilter).map(i => `
+        <tr>
+          <td><b>${esc(i.book_title)}</b><br><small style="color:var(--muted)">${esc(i.book_author || "")}</small></td>
+          <td>${esc(i.student_name)}<br><small style="color:var(--muted)">${esc(i.admission_no)}</small></td>
+          <td>${esc(i.class_name || "—")}</td>
+          <td>${fmtDate(i.issue_date)}</td>
+          <td>${fmtDate(i.due_date)}${i.status === "Overdue" ? '<br><small style="color:var(--red)">' + timeAgo(i.due_date) + '</small>' : ""}</td>
+          <td>${i.return_date ? fmtDate(i.return_date) : "—"}</td>
+          <td>${stBadge(i.status)}</td>
+          <td><small>${esc(i.issued_by || "—")}</small></td>
+          ${canLib() ? `<td><div class="actions">
+            ${i.status !== "Returned" ? `<button class="btn btn-primary btn-sm" onclick="returnBook(${i.id})">Return</button>` : ""}
+          </div></td>` : ""}
+        </tr>`).join("")}
+    </tbody></table></div>
+  ${issues.filter(i => !statusFilter || i.status === statusFilter).length === 0 ? '<div class="empty">No issue records</div>' : ""}`;
+  $("#iss-status").addEventListener("change", e => renderIssues(e.target.value));
+}
+
+async function bookForm(id) {
+  const all = id ? await api("/api/library/books") : null;
+  let b = { category: "Textbook", year: 2026, total_copies: 1, shelf: "" };
+  if (id) b = all.find(x => x.id === id) || b;
+  modal(`
+  <div class="modal-head"><h3>${id ? "Edit Book" : "Add Book"}</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="full"><label>Title *</label><input id="f-title" class="input" value="${esc(b.title || "")}" placeholder="e.g. Blossoms of the Savannah"></div>
+    <div><label>Author</label><input id="f-author" class="input" value="${esc(b.author || "")}"></div>
+    <div><label>ISBN</label><input id="f-isbn" class="input" value="${esc(b.isbn || "")}"></div>
+    <div><label>Publisher</label><input id="f-pub" class="input" value="${esc(b.publisher || "")}"></div>
+    <div><label>Category</label><select id="f-cat" class="input">
+      ${["Textbook", "Set Book", "Fiction", "Reference", "Biography", "Poetry", "Dictionary"].map(c => `<option ${b.category === c ? "selected" : ""}>${c}</option>`).join("")}
+    </select></div>
+    <div><label>Year</label><input id="f-year" class="input" type="number" value="${b.year || 2026}"></div>
+    <div><label>Total copies</label><input id="f-copies" class="input" type="number" min="1" value="${b.total_copies || 1}"></div>
+    <div><label>Shelf location</label><input id="f-shelf" class="input" value="${esc(b.shelf || "")}" placeholder="e.g. Shelf A1"></div>
+  </div></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="b-save">${id ? "Save Changes" : "Add Book"}</button>
+  </div>`);
+  $("#b-save").addEventListener("click", async () => {
+    const title = $("#f-title").value.trim();
+    if (!title) { toast("Title is required", "err"); return; }
+    const body = { title, author: $("#f-author").value.trim(), isbn: $("#f-isbn").value.trim(),
+      publisher: $("#f-pub").value.trim(), category: $("#f-cat").value,
+      year: Number($("#f-year").value) || 2026, total_copies: Number($("#f-copies").value) || 1,
+      shelf: $("#f-shelf").value.trim() };
+    try {
+      if (id) { await api("/api/library/books/" + id, { method: "PUT", body }); toast("Book updated"); }
+      else { await api("/api/library/books", { method: "POST", body }); toast("Book added"); }
+      closeModal(); openView("library");
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function deleteBook(id, title) {
+  modal(`
+  <div class="modal-head"><h3>Remove book</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><p style="font-size:13.5px">Remove <b>${esc(title)}</b> from the catalogue? This also deletes its issue history.</p></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-danger" id="del-b">Remove</button>
+  </div>`);
+  $("#del-b").addEventListener("click", async () => {
+    try { await api("/api/library/books/" + id, { method: "DELETE" }); toast("Book removed"); closeModal(); openView("library"); }
+    catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function issueForm(bookId) {
+  const [books, students] = await Promise.all([api("/api/library/books"), api("/api/students")]);
+  const selBook = bookId || "";
+  const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+  modal(`
+  <div class="modal-head"><h3>Issue book to student</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div class="full"><label>Book</label><select id="iss-book" class="input">
+      <option value="">— select book —</option>
+      ${books.filter(b => b.available_copies > 0).map(b => `<option value="${b.id}" ${String(b.id) === String(selBook) ? "selected" : ""}>${esc(b.title)} — ${b.available_copies} available</option>`).join("")}
+    </select></div>
+    <div class="full"><label>Student</label><select id="iss-student" class="input">
+      <option value="">— select student —</option>
+      ${students.filter(s => s.status === "Active").map(s => `<option value="${s.id}">${esc(s.first_name + " " + s.last_name)} — ${esc(s.admission_no)} (${esc(s.class_name || "unplaced")})</option>`).join("")}
+    </select></div>
+    <div><label>Due date (14 days default)</label><input id="iss-due" class="input" type="date" value="${due}"></div>
+    <div><label>Notes</label><input id="iss-notes" class="input" placeholder="optional"></div>
+  </div></div>
+  <div class="modal-foot">
+    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="iss-save"><svg><use href="#i-book"/></svg> Issue Book</button>
+  </div>`);
+  $("#iss-save").addEventListener("click", async () => {
+    const bid = $("#iss-book").value, sid = $("#iss-student").value;
+    if (!bid || !sid) { toast("Select a book and a student", "err"); return; }
+    try {
+      await api("/api/library/issue", { method: "POST", body: { book_id: Number(bid), student_id: Number(sid), due_date: $("#iss-due").value, notes: $("#iss-notes").value.trim() } });
+      toast("Book issued to student");
+      closeModal(); openView("library", { tab: "issues" });
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+
+async function returnBook(issueId) {
+  try {
+    await api("/api/library/return/" + issueId, { method: "POST" });
+    toast("Book returned ✓");
+    openView("library", { tab: "issues" });
+  } catch (err) { toast(err.message, "err"); }
+}
+
+/* ============================================================
    PARENT / GUARDIAN PORTAL
    ============================================================ */
 async function gChildren() {
@@ -2379,22 +2868,18 @@ function bindGChild(view) {
   if (sel) sel.addEventListener("change", e => { state.guardianChild = Number(e.target.value); openView(view); });
 }
 const gChildId = () => Number(state.guardianChild) || 0;
-const meanGradeFromPts = (p) => p === null || p === undefined ? "—" :
-  (p >= 11.5 ? "A" : p >= 10.5 ? "A-" : p >= 9.5 ? "B+" : p >= 8.5 ? "B" : p >= 7.5 ? "B-" :
-   p >= 6.5 ? "C+" : p >= 5.5 ? "C" : p >= 4.5 ? "C-" : p >= 3.5 ? "D+" : p >= 2.5 ? "D" : "E");
 
 async function view_gdash(el) {
   el.innerHTML = '<div class="loader"><div class="spinner"></div><p>Loading…</p></div>';
   const kids = await gChildren();
   if (!kids.length) { el.innerHTML = emptyState("No children linked", "Contact the school office to link your account."); return; }
-  await gChildSwitcher(el);
   const d = await api(`/api/guardian/dashboard?student_id=${gChildId()}`);
   const ex = d.exam, tr = d.transport;
   el.innerHTML = `
   ${await gChildSwitcher(el)}
   <div class="stat-grid">
     ${statCard("green", "i-chart", ex ? fmtNum(ex.mean) : "—", "Latest mean", ex ? esc(ex.exam_name) : "No results yet")}
-    ${statCard("blue", "i-users", ex ? esc(meanGradeFromPts(ex.avg_pts)) : "—", "Mean grade", ex ? "Rank " + (ex.class_rank || "—") + " of " + (ex.class_size || "—") : "—")}
+    ${statCard("blue", "i-users", ex ? esc(meanGradeFromPts(ex.avg_pts, d.scale)) : "—", d.scale === "cbc" ? "Achievement level" : "Mean grade", ex ? "Rank " + (ex.class_rank || "—") + " of " + (ex.class_size || "—") : "—")}
     ${statCard(ex && d.balance > 0 ? "red" : "green", "i-money", fmtMoney(d.balance), "Fee balance", ex ? esc(d.term) : "—")}
     ${statCard("amber", "i-bus", tr ? esc(tr.name) : "—", "Transport", tr ? tr.morning_time + " – " + tr.evening_time : "Not enrolled")}
   </div>
@@ -2404,9 +2889,10 @@ async function view_gdash(el) {
       ${ex ? `
         <div class="kgrid" style="grid-template-columns:repeat(3,1fr)">
           <div class="kpi"><div class="k">Mean score</div><div class="v">${fmtNum(ex.mean)}</div></div>
-          <div class="kpi"><div class="k">Mean grade</div><div class="v"><span class="grade-pill ${gradeClass(meanGradeFromPts(ex.avg_pts))}">${esc(meanGradeFromPts(ex.avg_pts))}</span></div></div>
+          <div class="kpi"><div class="k">${d.scale === "cbc" ? "Achievement level" : "Mean grade"}</div><div class="v"><span class="grade-pill ${gradeClass(meanGradeFromPts(ex.avg_pts, d.scale), d.scale)}">${esc(meanGradeFromPts(ex.avg_pts, d.scale))}</span></div></div>
           <div class="kpi"><div class="k">Class position</div><div class="v" style="font-size:15px">${ex.class_rank || "—"} / ${ex.class_size || "—"}</div></div>
         </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:8px">${d.scale === "cbc" ? "CBC levels: E=Exceeding (80%+) · M=Meeting (65%+) · A=Approaching (50%+) · B=Below (&lt;50%)" : KCSE_BANDS_LABEL}</p>
         <div style="margin-top:14px"><button class="btn btn-outline btn-sm" onclick="openView('gresults')">Full results <svg style="width:13px;height:13px"><use href="#i-arrow"/></svg></button></div>`
       : '<p style="color:var(--muted)">No exam results published yet.</p>'}
     </div>
@@ -2435,12 +2921,12 @@ async function view_gdash(el) {
   bindGChild("gdash");
 }
 
-async function view_gresults(el) {
+async function view_gresults(el, params) {
   el.innerHTML = '<div class="loader"><div class="spinner"></div><p>Loading…</p></div>';
   const kids = await gChildren();
   if (!kids.length) { el.innerHTML = emptyState("No children linked", "Contact the school office to link your account."); return; }
   await gChildSwitcher(el);
-  const d = await api(`/api/guardian/results?student_id=${gChildId()}`);
+  const d = await api(`/api/guardian/results?student_id=${gChildId()}${params.examId ? "&exam_id=" + params.examId : ""}`);
   const exams = d.exams || [];
   const sel = d.selected_exam ? d.selected_exam.id : (exams.length ? exams[exams.length - 1].id : "");
   el.innerHTML = `
@@ -2458,7 +2944,7 @@ async function view_gresults(el) {
     $("#g-res-body").innerHTML = `
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
       ${statCard("green", "i-chart", fmtNum(d.agg.mean), "Mean score", esc(d.selected_exam.name))}
-      ${statCard("blue", "i-users", esc(meanGradeFromPts(d.agg.avg_pts)), "Mean grade", d.agg.total_points + " points")}
+      ${statCard("blue", "i-users", esc(meanGradeFromPts(d.agg.avg_pts, d.scale)), d.scale === "cbc" ? "Achievement level" : "Mean grade", d.agg.total_points + " points")}
       ${statCard("violet", "i-users", d.class_rank || "—", "Class position", "of " + (d.class_size || "—") + " students")}
       ${statCard("amber", "i-exam", d.agg.subjects, "Subjects", "graded")}
     </div>
@@ -2468,11 +2954,13 @@ async function view_gresults(el) {
         ${d.per_subject.map((p, i) => `
           <tr><td>${i + 1}</td><td><b>${esc(p.name)}</b></td>
           <td class="num">${fmtNum(p.score)}</td>
-          <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade)}">${esc(p.grade)}</span></td>
+          <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade, d.scale)}" title="${esc(d.scale === "cbc" ? (CBC_LEVELS[p.grade] || {}).name || "" : p.grade)}">${esc(p.grade)}</span></td>
           <td class="num">${p.points}</td>
           <td class="num">${fmtNum(p.subject_mean)}</td></tr>`).join("")}
       </tbody></table></div>
-    <p style="font-size:12px;color:var(--muted);margin-top:10px">Grading: A (80+) · A- (75+) · B+ (70+) · B (65+) · B- (60+) · C+ (55+) · C (50+) · C- (45+) · D+ (40+) · D (35+) · D- (30+) · E (below 30)</p>`;
+    <p style="font-size:12px;color:var(--muted);margin-top:10px">${d.scale === "cbc"
+      ? "CBC Achievement Levels: E = Exceeding (80%+) · M = Meeting (65%+) · A = Approaching (50%+) · B = Below (under 50%)"
+      : "KCSE 12-point: " + KCSE_BANDS_LABEL}</p>`;
   } else {
     $("#g-res-body").innerHTML = emptyState("No results for this exam", "Results appear once the school publishes the exam.");
   }
@@ -2562,7 +3050,7 @@ async function view_gtransport(el) {
       <div class="rrow"><span>Morning pickup</span><b>${esc(r.morning_time || "—")}</b></div>
       <div class="rrow"><span>Evening drop-off</span><b>${esc(r.evening_time || "—")}</b></div>
       <div class="rrow"><span>Transport fee (per term)</span><b style="color:var(--green-dark)">${fmtMoney(r.fee)}</b></div>
-      <div class="rrow"><span>Capacity</span><b>${r.assigned} / ${r.capacity}</b></div>
+      <div class="rrow"><span>Route status</span><b>${esc(r.status || "Active")}</b></div>
     </div>
     <div class="card">
       <div class="card-head"><h3>Boarding record</h3><p>Last ${d.logs.length} entries</p></div>
@@ -2763,37 +3251,47 @@ async function applySizePick(key) {
   applyAppearance();
   toast("Font size applied");
 }
-async function settingsUsers() {
+async function settingsUsers(showParents) {
   const users = await api("/api/users");
+  const staff = users.filter(u => u.role !== "guardian");
+  const parents = users.filter(u => u.role === "guardian");
+  const shown = showParents ? parents : staff;
   $("#st-body").innerHTML = `
   <div class="toolbar">
-    <p style="color:var(--muted)">${users.length} system accounts</p>
+    <p style="color:var(--muted)">${staff.length} staff accounts · ${parents.length} parent accounts</p>
+    <select class="input" id="usr-filter" style="min-width:160px">
+      <option value="staff" ${showParents ? "" : "selected"}>Staff accounts</option>
+      <option value="parents" ${showParents ? "selected" : ""}>Parent accounts</option>
+    </select>
     <div class="grow"></div>
-    <button class="btn btn-primary" onclick="userForm()"><svg><use href="#i-plus"/></svg> Add User</button>
+    ${showParents ? "" : '<button class="btn btn-primary" onclick="userForm()"><svg><use href="#i-plus"/></svg> Add User</button>'}
   </div>
   <div class="table-wrap"><table class="tbl">
     <thead><tr><th>User</th><th>Username</th><th>Role</th><th>Status</th><th class="num">Actions</th></tr></thead>
     <tbody>
-      ${users.map(u => `
+      ${shown.map(u => `
         <tr>
           <td>${avatarHtml(u.profile_pic, u.full_name, "avatar-sm")}<b style="margin-left:8px">${esc(u.full_name)}</b></td>
           <td><code>${esc(u.username)}</code></td>
-          <td><span class="badge ${u.role === "admin" ? "b-admin" : u.role === "teacher" ? "b-teacher" : "b-accounts"}">
-            ${u.role === "admin" ? "Administrator" : u.role === "teacher" ? "Teacher" : "Accounts"}</span></td>
+          <td><span class="badge ${u.role === "admin" ? "b-admin" : u.role === "teacher" ? "b-teacher" : u.role === "accounts" ? "b-accounts" : "b-slate"}">
+            ${u.role === "admin" ? "Administrator" : u.role === "teacher" ? "Teacher" : u.role === "accounts" ? "Accounts" : "Parent"}</span></td>
           <td><button class="switch ${u.active ? "on" : ""}" data-id="${u.id}" data-active="${u.active}" title="Toggle active"></button></td>
           <td><div class="actions">
             <button class="ic-btn" title="Reset password" onclick="resetPwd(${u.id},'${esc(u.username)}')"><svg><use href="#i-key"/></svg></button>
-            <button class="ic-btn" title="Edit role" onclick="editUser(${u.id})"><svg><use href="#i-edit"/></svg></button>
+            ${u.role === "guardian" ? "" : `<button class="ic-btn" title="Edit role" onclick="editUser(${u.id})"><svg><use href="#i-edit"/></svg></button>`}
           </div></td>
         </tr>`).join("")}
     </tbody></table></div>
     <p style="font-size:12px;color:var(--muted);margin-top:12px">
-      <b>Administrator</b> — full access · <b>Teacher</b> — academics, marks, attendance · <b>Accounts</b> — finance &amp; fee management only.</p>`;
+      ${showParents ? "Parent accounts are created automatically from student records — username is the parent's phone number, initial password <code>parent123</code>."
+        : "<b>Administrator</b> — full access · <b>Teacher</b> — academics, marks, attendance · <b>Accounts</b> — finance &amp; fee management only."}</p>`;
+  const flt = $("#usr-filter");
+  if (flt) flt.addEventListener("change", e => settingsUsers(e.target.value === "parents"));
   $$(".switch").forEach(b => b.addEventListener("click", async () => {
     const active = b.dataset.active === "1" ? 0 : 1;
     await api("/api/users/" + b.dataset.id, { method: "PUT", body: { active } });
     toast(active ? "Account activated" : "Account deactivated");
-    settingsUsers();
+    settingsUsers(showParents);
   }));
 }
 async function userForm() {

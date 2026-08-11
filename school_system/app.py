@@ -105,14 +105,30 @@ def role_required(*roles):
         return wrap
     return deco
 
-login_required = role_required("admin", "teacher", "accounts")
-any_required = role_required("admin", "teacher", "accounts", "guardian")
+login_required = role_required("admin", "teacher", "accounts", "librarian")
+any_required = role_required("admin", "teacher", "accounts", "guardian", "librarian")
 admin_required = role_required("admin")
 finance_required = role_required("admin", "accounts")
 academic_required = role_required("admin", "teacher")
 guardian_required = role_required("guardian")
+library_required = role_required("admin", "librarian")
 
 # ------------------------------------------------------------------ grading
+# Kenyan CBC (Competency-Based Curriculum) grading — current system
+#   Grades 1-9 (primary & junior secondary): CBC achievement levels
+#   Grades 10-12 (senior secondary): KCSE 12-point scale (A-E)
+CBC_BANDS = [
+    (80, "E", "Exceeding Expectations", 4),
+    (65, "M", "Meeting Expectations", 3),
+    (50, "A", "Approaching Expectations", 2),
+    (0,  "B", "Below Expectations", 1),
+]
+KCSE_BANDS = [
+    (80, 12, "A"),  (75, 11, "A-"), (70, 10, "B+"), (65, 9, "B"), (60, 8, "B-"),
+    (55, 7, "C+"),  (50, 6, "C"),   (45, 5, "C-"),  (40, 4, "D+"), (35, 3, "D"),
+    (30, 2, "D-"),  (0, 1, "E"),
+]
+
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 PERIODS = [
     {"n": 1, "start": "8:00", "end": "8:40"},
@@ -125,27 +141,59 @@ PERIODS = [
     {"n": 8, "start": "14:00", "end": "14:40"},
 ]
 
-GRADES = [
-    (80, 12, "A"),  (75, 11, "A-"), (70, 10, "B+"), (65, 9, "B"), (60, 8, "B-"),
-    (55, 7, "C+"),  (50, 6, "C"),   (45, 5, "C-"),  (40, 4, "D+"), (35, 3, "D"),
-    (30, 2, "D-"),  (0, 1, "E"),
-]
+def scale_for_grade(grade_str):
+    """cbc for Grade 1-9 (primary & JSS), kcse for Grade 10-12 (senior)."""
+    try:
+        g = int(str(grade_str).split()[-1])
+    except Exception:
+        return "kcse"
+    return "cbc" if g <= 9 else "kcse"
 
-def grade_for(score):
+def grade_for(score, scale="kcse"):
     if score is None:
         return None, None
-    for lo, pts, letter in GRADES:
+    if scale == "cbc":
+        for lo, letter, _name, pts in CBC_BANDS:
+            if score >= lo:
+                return letter, pts
+        return "B", 1
+    for lo, pts, letter in KCSE_BANDS:
         if score >= lo:
             return letter, pts
     return "E", 1
 
-def mean_grade_from_points(avg_pts):
+def level_name(letter, scale="kcse"):
+    if scale == "cbc":
+        for _lo, l, name, _pts in CBC_BANDS:
+            if l == letter:
+                return name
+    return letter
+
+def mean_grade_from_points(avg_pts, scale="kcse"):
     if avg_pts is None:
         return "-"
-    for lo, pts, letter in GRADES:
+    if scale == "cbc":
+        if avg_pts >= 3.5: return "E"
+        if avg_pts >= 2.5: return "M"
+        if avg_pts >= 1.5: return "A"
+        return "B"
+    for lo, pts, letter in KCSE_BANDS:
         if avg_pts >= pts - 0.49:
             return letter
     return "E"
+
+def subjects_for_grade(gnum):
+    """Subjects taught in a given grade (CBC curriculum)."""
+    rows = q("SELECT * FROM subjects")
+    out = []
+    for r in rows:
+        try:
+            gs = [int(x) for x in (r["grades"] or "").split(",") if x.strip().isdigit()]
+        except Exception:
+            gs = []
+        if gnum in gs or not r["grades"]:
+            out.append(r)
+    return out
 
 def settings_map():
     return dict((r["key"], r["value"]) for r in q("SELECT key,value FROM settings"))
@@ -237,6 +285,13 @@ def index():
 def static_files(path):
     return send_from_directory(os.path.join(BASE_DIR, "static"), path)
 
+@app.route("/sw.js")
+def service_worker():
+    resp = send_from_directory(os.path.join(BASE_DIR, "static"), "sw.js")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
 @app.errorhandler(404)
 def not_found(e):
     if request.path.startswith("/api/"):
@@ -249,7 +304,7 @@ def login():
     data = request.get_json(force=True) or {}
     u = q1("SELECT * FROM users WHERE username=? AND active=1", (data.get("username", "").strip(),))
     if not u or u["password_hash"] != phash(data.get("password", "")):
-        return jsonify({"error": "Invalid username or password"}), 401
+        return jsonify({"error": "Wrong password or username. Please check your details and try again."}), 401
     session["user_id"] = u["id"]
     session["role"] = u["role"]
     session["name"] = u["full_name"]
@@ -472,8 +527,14 @@ def dashboard():
                               FROM activity_log a LEFT JOIN users u ON u.id=a.user_id
                               ORDER BY a.id DESC LIMIT 8"""))
 
+    lib = {
+        "total_titles": q1("SELECT COUNT(*) c FROM books")["c"],
+        "issued": q1("SELECT COUNT(*) c FROM book_issues WHERE status IN ('Issued','Overdue')")["c"],
+        "overdue": q1("SELECT COUNT(*) c FROM book_issues WHERE status='Overdue'")["c"],
+    }
     return jsonify({
         "settings": s,
+        "library": lib,
         "alerts": alerts,
         "activity": feed,
         "counts": {"students": total_students, "teachers": total_teachers,
@@ -587,7 +648,11 @@ def student_detail(sid):
 @app.route("/api/students/promote", methods=["POST"])
 @admin_required
 def promote_class():
-    """Move every student of one class to another class (e.g. next grade)."""
+    """Move EVERY student of one class to another class for the WHOLE academic year.
+
+    The source class is left completely empty (all three terms' enrollments are
+    reassigned) so it is ready for a fresh intake — no mix-ups between classes.
+    """
     d = request.get_json(force=True) or {}
     from_id, to_id = d.get("from_class_id"), d.get("to_class_id")
     if not from_id or not to_id:
@@ -595,23 +660,29 @@ def promote_class():
     if from_id == to_id:
         return jsonify({"error": "Source and target class are the same"}), 400
     s = settings_map()
-    term, year = s.get("current_term", "Term 3"), s.get("academic_year", "2026")
+    year = s.get("academic_year", "2026")
     from_c = q1("SELECT * FROM classes WHERE id=?", (from_id,))
     to_c = q1("SELECT * FROM classes WHERE id=?", (to_id,))
     if not from_c or not to_c:
         return jsonify({"error": "Class not found"}), 404
     rows = q("""SELECT DISTINCT student_id FROM enrollments
-                WHERE class_id=? AND term=? AND academic_year=?""", (from_id, term, year))
+                WHERE class_id=? AND academic_year=?""", (from_id, year))
     if not rows:
-        return jsonify({"error": "No students in the source class for the current term"}), 400
+        return jsonify({"error": "No students in the source class"}), 400
     cur = db()
+    moved = 0
     for r in rows:
-        cur.execute("""UPDATE enrollments SET class_id=?
-                       WHERE student_id=? AND term=? AND academic_year=?""",
-                    (to_id, r["student_id"], term, year))
+        sid = r["student_id"]
+        # remove every enrollment this student has this year (all terms)
+        cur.execute("DELETE FROM enrollments WHERE student_id=? AND academic_year=?", (sid, year))
+        # re-enrol in the target class for the whole year (no duplicates)
+        for term in ("Term 1", "Term 2", "Term 3"):
+            cur.execute("INSERT INTO enrollments(student_id,class_id,term,academic_year) VALUES(?,?,?,?)",
+                        (sid, to_id, term, year))
+        moved += 1
     cur.commit()
-    log_activity("Class promoted", f"{len(rows)} students moved from {from_c['name']} to {to_c['name']} ({term})")
-    return jsonify({"moved": len(rows), "from": from_c["name"], "to": to_c["name"]})
+    log_activity("Class promoted", f"{moved} students moved from {from_c['name']} to {to_c['name']} — {from_c['name']} is now empty")
+    return jsonify({"moved": moved, "from": from_c["name"], "to": to_c["name"]})
 
 @app.route("/api/students/import", methods=["POST"])
 @admin_required
@@ -759,8 +830,9 @@ def add_subject():
     if not d.get("name") or not d.get("code"):
         return jsonify({"error": "name and code required"}), 400
     try:
-        sid = exe("INSERT INTO subjects(name,code,category,teacher_id) VALUES(?,?,?,?)",
-                  (d["name"], d["code"].upper(), d.get("category"), d.get("teacher_id")))
+        sid = exe("INSERT INTO subjects(name,code,category,grades,teacher_id) VALUES(?,?,?,?,?)",
+                  (d["name"], d["code"].upper(), d.get("category"),
+                   d.get("grades") or "1,2,3,4,5,6,7,8,9,10,11,12", d.get("teacher_id")))
     except sqlite3.IntegrityError:
         return jsonify({"error": "Code already exists"}), 400
     return jsonify({"id": sid})
@@ -769,7 +841,7 @@ def add_subject():
 @admin_required
 def update_subject(sid):
     d = request.get_json(force=True) or {}
-    fields = ["name", "code", "category", "teacher_id"]
+    fields = ["name", "code", "category", "grades", "teacher_id"]
     sets = [f for f in fields if f in d]
     if sets:
         exe("UPDATE subjects SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?", tuple(d[f] for f in sets) + (sid,))
@@ -832,7 +904,9 @@ def exam_marks(eid):
                     FROM enrollments e JOIN students st ON st.id=e.student_id
                     WHERE e.class_id=? AND e.term=(SELECT term FROM exams WHERE id=?)
                     ORDER BY st.first_name""", (class_id, eid))
-    subjects = q("SELECT id, name, code FROM subjects ORDER BY id")
+    clr = q1("SELECT grade FROM classes WHERE id=?", (class_id,))
+    gnum = int(clr["grade"].split()[-1]) if clr else 7
+    subjects = subjects_for_grade(gnum)
     scores = q("SELECT student_id, subject_id, score FROM exam_scores WHERE exam_id=?", (eid,))
     score_map = {(r["student_id"], r["subject_id"]): r["score"] for r in scores}
     matrix = []
@@ -859,7 +933,13 @@ def save_marks(eid):
             continue
         sc = float(sc)
         sc = max(0, min(100, sc))
-        letter, pts = grade_for(sc)
+        # determine scale from the student's class grade (CBC vs KCSE)
+        clr = q1("""SELECT c.grade FROM enrollments e JOIN classes c ON c.id=e.class_id
+                    WHERE e.student_id=? AND e.term=(SELECT term FROM exams WHERE id=?)
+                    AND e.academic_year=(SELECT academic_year FROM exams WHERE id=?) LIMIT 1""",
+                 (sid_, eid, eid))
+        scale = scale_for_grade(clr["grade"] if clr else "Grade 7")
+        letter, pts = grade_for(sc, scale)
         cur.execute("""INSERT INTO exam_scores(exam_id,student_id,subject_id,score,grade,points)
                        VALUES(?,?,?,?,?,?)
                        ON CONFLICT(exam_id,student_id,subject_id)
@@ -916,13 +996,15 @@ def analytics():
         st = student_map.get(sid)
         if not st:
             continue
+        scale = scale_for_grade(st.get("grade") or st.get("class_name") or "Grade 7")
         rows.append({
             "student_id": sid, "admission_no": st["admission_no"],
             "name": f"{st['first_name']} {st['last_name']}",
             "gender": st["gender"], "class_name": st.get("class_name") or "—",
             "subjects": res["subjects"], "total_points": res["total_points"],
             "mean": res["mean"], "avg_pts": res["avg_pts"],
-            "mean_grade": mean_grade_from_points(res["avg_pts"]),
+            "scale": scale,
+            "mean_grade": mean_grade_from_points(res["avg_pts"], scale),
         })
     for r in rows:
         class_peers = sorted([x for x in rows if x["class_name"] == r["class_name"]],
@@ -936,8 +1018,14 @@ def analytics():
     grade_dist = {}
     for r in rows:
         grade_dist[r["mean_grade"]] = grade_dist.get(r["mean_grade"], 0) + 1
-    order = [g[2] for g in GRADES]
-    grade_dist = [{"grade": g, "count": grade_dist.get(g, 0)} for g in order]
+    # order: CBC levels (E,M,A,B) then KCSE letters
+    order = ["E", "M", "A", "B", "A-", "B+", "B-", "C+", "C", "C-", "D+", "D", "D-"]
+    seen = set()
+    ordered = []
+    for g in order + ["A", "B"]:
+        if g not in seen:
+            seen.add(g); ordered.append(g)
+    grade_dist = [{"grade": g, "count": grade_dist.get(g, 0)} for g in ordered]
 
     subject_means = rows_to_dicts(q("""SELECT su.name, su.code, ROUND(AVG(es.score),1) mean,
                                        MAX(es.score) highest, MIN(es.score) lowest,
@@ -1013,10 +1101,12 @@ def student_analytics(sid):
                                FROM exams e JOIN exam_scores es ON es.exam_id=e.id AND es.student_id=?
                                GROUP BY e.id ORDER BY e.id""", (sid,)))
 
+    scale = scale_for_grade(cl["grade"] if cl else "Grade 7")
     return jsonify({
         "exams": rows_to_dicts(exams),
         "selected_exam": dict(selected),
         "student": out,
+        "scale": scale,
         "per_subject": per_subject,
         "agg": dict(agg) if agg else None,
         "class_rank": rank, "class_size": len(peers),
@@ -1261,7 +1351,7 @@ def transport_assign():
     for sid in student_ids:
         cur.execute("""INSERT INTO transport_assignments(student_id,route_id,academic_year,status) VALUES(?,?,?,?)
                        ON CONFLICT(student_id,academic_year) DO UPDATE SET route_id=excluded.route_id, status='Active'""",
-                    (sid, route_id, year))
+                    (sid, route_id, year, "Active"))
     # unassign students no longer in the list for this route
     if student_ids:
         placeholders = ",".join("?" * len(student_ids))
@@ -1607,6 +1697,7 @@ def guardian_dashboard():
         att_counts[r["status"]] = att_counts.get(r["status"], 0) + 1
     ann = rows_to_dicts(q("SELECT * FROM announcements ORDER BY id DESC LIMIT 3"))
     return jsonify({"student": dict(st), "class": cl,
+                    "scale": scale_for_grade(cl["grade"] if cl else "Grade 7"),
                     "exam": summary, "billed": billed, "paid": paid, "balance": billed - paid,
                     "transport": dict(route) if route else None,
                     "attendance": {"recent_days": len(att_days), **att_counts},
@@ -1644,7 +1735,8 @@ def guardian_results():
     peers = sorted(peers, key=lambda r: -r["avg_pts"])
     rank = next((i + 1 for i, p in enumerate(peers) if p["student_id"] == sid), None)
     return jsonify({"exams": rows_to_dicts(exams), "selected_exam": dict(selected),
-                    "student": dict(st), "per_subject": per_subject,
+                    "student": dict(st), "scale": scale_for_grade(cl["grade"] if cl else "Grade 7"),
+                    "per_subject": per_subject,
                     "agg": dict(agg) if agg and agg["subjects"] else None,
                     "class_rank": rank, "class_size": len(peers)})
 
@@ -1669,6 +1761,11 @@ def guardian_pay():
     amount = float(d.get("amount") or 0)
     if amount <= 0:
         return jsonify({"error": "Enter a valid amount"}), 400
+    ptid = d.get("payment_type_id")
+    if ptid:
+        pt = q1("SELECT * FROM payment_types WHERE id=? AND active=1", (ptid,))
+        if not pt:
+            return jsonify({"error": "Invalid payment type"}), 400
     receipt = "RCP-" + str(q1("SELECT COALESCE(MAX(CAST(SUBSTR(receipt_no,5) AS INTEGER)),9999)+1 m FROM fee_payments")["m"])
     import secrets as _s
     ref = d.get("reference") or "MP" + _s.token_hex(4).upper()
@@ -1713,6 +1810,163 @@ def guardian_attendance():
     total = sum(counts.values())
     rate = round((counts["Present"] + counts["Late"] + counts["Permission"]) / total * 100) if total else 0
     return jsonify({"days": days, "counts": counts, "rate": rate, "total": total})
+
+# ------------------------------------------------------------------ curriculum guide
+@app.route("/api/curriculum")
+@any_required
+def curriculum():
+    bands = [
+        {"key": "lower", "label": "Lower Primary", "grades": "Grade 1 – 3",
+         "scale": "CBC Achievement Levels", "gmin": 1, "gmax": 3},
+        {"key": "upper", "label": "Upper Primary", "grades": "Grade 4 – 6",
+         "scale": "CBC Achievement Levels", "gmin": 4, "gmax": 6},
+        {"key": "jss", "label": "Junior Secondary", "grades": "Grade 7 – 9",
+         "scale": "CBC Achievement Levels", "gmin": 7, "gmax": 9},
+        {"key": "senior", "label": "Senior Secondary", "grades": "Grade 10 – 12",
+         "scale": "KCSE 12-point (A–E)", "gmin": 10, "gmax": 12},
+    ]
+    all_subj = q("SELECT * FROM subjects ORDER BY name")
+    for b in bands:
+        subj = []
+        for s in all_subj:
+            try:
+                gs = [int(x) for x in (s["grades"] or "").split(",") if x.strip().isdigit()]
+            except Exception:
+                gs = []
+            if any(b["gmin"] <= g <= b["gmax"] for g in gs):
+                subj.append({"id": s["id"], "name": s["name"], "code": s["code"], "category": s["category"]})
+        b["subjects"] = subj
+    return jsonify(bands)
+
+# ------------------------------------------------------------------ library
+@app.route("/api/library/books")
+@any_required
+def library_books():
+    q_ = request.args.get("q", "").strip().lower()
+    cat = request.args.get("category", "")
+    rows = q("""SELECT b.*,
+                       (SELECT COUNT(*) FROM book_issues i WHERE i.book_id=b.id AND i.status IN ('Issued','Overdue')) out_count
+                FROM books b ORDER BY b.title""")
+    out = []
+    for r in rows:
+        b = dict(r)
+        if q_ and q_ not in (b["title"] + " " + (b["author"] or "") + " " + (b["isbn"] or "")).lower():
+            continue
+        if cat and b["category"] != cat:
+            continue
+        b["status"] = "Out" if b["available_copies"] <= 0 else ("Low" if b["available_copies"] <= 2 else "Available")
+        out.append(b)
+    return jsonify(out)
+
+@app.route("/api/library/books", methods=["POST"])
+@library_required
+def library_add_book():
+    d = request.get_json(force=True) or {}
+    if not d.get("title"):
+        return jsonify({"error": "Book title required"}), 400
+    copies = max(1, int(d.get("total_copies") or 1))
+    bid = exe("""INSERT INTO books(title,author,isbn,publisher,category,year,total_copies,available_copies,shelf)
+                 VALUES(?,?,?,?,?,?,?,?,?)""",
+              (d["title"].strip(), d.get("author"), d.get("isbn"), d.get("publisher"),
+               d.get("category") or "Textbook", d.get("year"), copies, copies, d.get("shelf")))
+    log_activity("Book added", f"{d['title'].strip()} ({copies} copies)")
+    return jsonify({"id": bid})
+
+@app.route("/api/library/books/<int:bid>", methods=["PUT"])
+@library_required
+def library_update_book(bid):
+    d = request.get_json(force=True) or {}
+    fields = ["title", "author", "isbn", "publisher", "category", "year", "shelf"]
+    sets = [f for f in fields if f in d]
+    if "total_copies" in d:
+        cur = db()
+        out = q1("SELECT COUNT(*) c FROM book_issues WHERE book_id=? AND status IN ('Issued','Overdue')", (bid,))["c"]
+        new_total = max(int(d["total_copies"]), out)
+        cur.execute("UPDATE books SET total_copies=?, available_copies=? WHERE id=?", (new_total, new_total - out, bid))
+        cur.commit()
+    if sets:
+        exe("UPDATE books SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?", tuple(d[f] for f in sets) + (bid,))
+    log_activity("Book updated", f"#{bid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/library/books/<int:bid>", methods=["DELETE"])
+@library_required
+def library_delete_book(bid):
+    out = q1("SELECT COUNT(*) c FROM book_issues WHERE book_id=? AND status IN ('Issued','Overdue')", (bid,))["c"]
+    if out:
+        return jsonify({"error": "Cannot delete — copies are currently issued out"}), 400
+    exe("DELETE FROM book_issues WHERE book_id=?", (bid,))
+    b = q1("SELECT * FROM books WHERE id=?", (bid,))
+    exe("DELETE FROM books WHERE id=?", (bid,))
+    log_activity("Book removed", b["title"] if b else f"#{bid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/library/issues")
+@any_required
+def library_issues():
+    status = request.args.get("status", "")
+    rows = q("""SELECT i.*, b.title book_title, b.author book_author, b.category book_category,
+                       st.first_name, st.last_name, st.admission_no, c.name class_name
+                FROM book_issues i
+                JOIN books b ON b.id=i.book_id
+                JOIN students st ON st.id=i.student_id
+                LEFT JOIN enrollments e ON e.student_id=st.id AND e.term=(SELECT value FROM settings WHERE key='current_term')
+                LEFT JOIN classes c ON c.id=e.class_id
+                ORDER BY i.id DESC LIMIT 200""")
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["student_name"] = f"{d['first_name']} {d['last_name']}"
+        if status and d["status"] != status:
+            continue
+        out.append(d)
+    return jsonify(out)
+
+@app.route("/api/library/issue", methods=["POST"])
+@library_required
+def library_issue():
+    d = request.get_json(force=True) or {}
+    bid, sid = d.get("book_id"), d.get("student_id")
+    if not bid or not sid:
+        return jsonify({"error": "book_id and student_id required"}), 400
+    book = q1("SELECT * FROM books WHERE id=?", (bid,))
+    st = q1("SELECT * FROM students WHERE id=?", (sid,))
+    if not book or not st:
+        return jsonify({"error": "Book or student not found"}), 404
+    if book["available_copies"] <= 0:
+        return jsonify({"error": "No copies of this book are currently available"}), 400
+    due = d.get("due_date") or (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+    iid = exe("""INSERT INTO book_issues(book_id,student_id,issue_date,due_date,status,issued_by,notes)
+                 VALUES(?,?,?,?,?,?,?)""",
+              (bid, sid, datetime.date.today().isoformat(), due, "Issued", acting_name(), d.get("notes")))
+    exe("UPDATE books SET available_copies=available_copies-1 WHERE id=?", (bid,))
+    log_activity("Book issued", f"{book['title']} -> {st['first_name']} {st['last_name']} (due {due})")
+    return jsonify({"id": iid})
+
+@app.route("/api/library/return/<int:iid>", methods=["POST"])
+@library_required
+def library_return(iid):
+    rec = q1("SELECT * FROM book_issues WHERE id=?", (iid,))
+    if not rec:
+        return jsonify({"error": "Issue record not found"}), 404
+    if rec["status"] in ("Returned",):
+        return jsonify({"error": "This book was already returned"}), 400
+    exe("UPDATE book_issues SET return_date=?, status='Returned' WHERE id=?",
+        (datetime.date.today().isoformat(), iid))
+    exe("UPDATE books SET available_copies=available_copies+1 WHERE id=?", (rec["book_id"],))
+    log_activity("Book returned", f"issue #{iid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/library/summary")
+@any_required
+def library_summary():
+    total = q1("SELECT COUNT(*) c FROM books")["c"]
+    copies = q1("SELECT COALESCE(SUM(total_copies),0) c FROM books")["c"]
+    available = q1("SELECT COALESCE(SUM(available_copies),0) c FROM books")["c"]
+    issued = q1("SELECT COUNT(*) c FROM book_issues WHERE status IN ('Issued','Overdue')")["c"]
+    overdue = q1("SELECT COUNT(*) c FROM book_issues WHERE status='Overdue'")["c"]
+    return jsonify({"total_titles": total, "total_copies": copies, "available": available,
+                    "issued": issued, "overdue": overdue})
 
 # ------------------------------------------------------------------ settings
 @app.route("/api/settings", methods=["GET", "PUT"])

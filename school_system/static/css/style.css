@@ -29,7 +29,9 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .login-card label{display:block;font-weight:600;font-size:13px;margin:14px 0 6px;color:var(--slate)}
 .login-card input{width:100%;padding:11px 13px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;outline:none}
 .login-card input:focus{border-color:var(--green);box-shadow:0 0 0 3px var(--green-100)}
-.login-error{color:var(--red);font-size:13px;margin-top:10px;min-height:18px;text-align:center}
+.login-error{color:var(--red);font-size:13px;font-weight:600;margin-top:12px;text-align:center;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-9px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(4px)}}
+.login-card.shake{animation:shake .45s ease}
 .quick-login-row{display:flex;gap:8px;margin-top:14px}
 .quick-login-row .btn{flex:1;justify-content:center}
 .login-hint{margin-top:18px;font-size:12.5px;color:var(--muted);text-align:center;border-top:1px dashed var(--line);padding-top:14px}
@@ -144,6 +146,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
 .grade-pill{width:34px;height:34px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;
   font-weight:800;font-size:14px;color:#fff}
 .gA{background:#16a34a}.gB{background:#22c55e}.gC{background:#f59e0b}.gD{background:#f97316}.gE{background:#ef4444}.gNone{background:#e2e8f0;color:#64748b}
+/* CBC achievement levels (Grades 1-9) */
+.gEx{background:#16a34a}.gMe{background:#0ea5e9}.gAp{background:#f59e0b}.gBe{background:#ef4444}
 
 /* ---------- progress ---------- */
 .progress{height:8px;background:#eef2f7;border-radius:999px;overflow:hidden;min-width:90px}
@@ -298,6 +302,19 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
 .activity-item .a-det{font-size:12px;color:var(--muted);margin-top:1px}
 .activity-item .a-who{font-size:11px;color:var(--muted);margin-top:2px}
 
+/* ---------- offline / online ---------- */
+.offline-banner{position:fixed;top:0;left:0;right:0;z-index:120;background:#7c2d12;color:#fff;
+  display:flex;align-items:center;gap:10px;justify-content:center;padding:9px 16px;
+  font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.offline-banner b{font-weight:700}
+.offline-banner.hidden{display:none}
+.net-pill{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12px;
+  padding:6px 12px;border-radius:999px}
+.net-pill .net-dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.net-pill.online{background:var(--green-100);color:var(--green-dark)}
+.net-pill.offline{background:#fef3c7;color:var(--amber)}
+#net-pending{font-weight:600;opacity:.85}
+
 /* ---------- transport ---------- */
 .route-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff;box-shadow:var(--shadow)}
 .route-card h4{font-size:14.5px;display:flex;align-items:center;gap:8px}
@@ -386,10 +403,16 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
 .line2{border-top:1.5px solid var(--ink);margin-top:46px;padding-top:4px;font-weight:700;font-size:11.5px}
 .r-footnote{text-align:center;font-size:9.5px;color:var(--muted);margin-top:12px;border-top:1px dashed #cbd5e1;padding-top:8px}
 @media print{
-  .modal-backdrop{display:flex!important;position:static;background:#fff;padding:0;overflow:visible}
-  .modal{box-shadow:none;max-width:none;border:0;border-radius:0}
-  .modal-head{display:none}
-  .modal-body{max-height:none;overflow:visible;padding:0;background:#fff!important}
-  #receipt-sheet{border:0;max-width:none;margin:0}
+  /* Receipt printing: hide EVERYTHING except the modal so only the receipt prints */
+  body.receipt-mode #app{display:none!important}
+  body.receipt-mode #login-screen{display:none!important}
+  body.receipt-mode #toast-wrap{display:none!important}
+  .modal-backdrop{display:flex!important;position:static!important;inset:auto!important;
+    background:#fff!important;backdrop-filter:none!important;padding:0!important;
+    overflow:visible!important;align-items:flex-start!important;justify-content:center!important}
+  .modal{box-shadow:none!important;max-width:none!important;border:0!important;border-radius:0!important}
+  .modal-head{display:none!important}
+  .modal-body{max-height:none!important;overflow:visible!important;padding:0!important;background:#fff!important}
+  #receipt-sheet{border:0!important;max-width:620px!important;margin:0 auto!important}
   .no-print{display:none!important}
 }

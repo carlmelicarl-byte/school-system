@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Seed the ElimuPro school database with schema + realistic sample data."""
+"""Seed the ElimuPro school database with schema + realistic sample data.
+
+Uses the current Kenyan Competency-Based Curriculum (CBC):
+  - Lower Primary (Grade 1-3), Upper Primary (Grade 4-6),
+    Junior Secondary (Grade 7-9), Senior Secondary (Grade 10-12)
+  - CBC 4-level achievement grading for Grades 1-9
+    (Exceeding / Meeting / Approaching / Below Expectations)
+  - KCSE 12-point scale (A-E) for Senior Secondary (Grade 10-12)
+"""
 import os
 import random
 import sqlite3
@@ -17,7 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('admin','teacher','accounts','guardian')),
+  role TEXT NOT NULL CHECK(role IN ('admin','teacher','accounts','guardian','librarian')),
   teacher_id INTEGER REFERENCES teachers(id),
   profile_pic TEXT,
   active INTEGER DEFAULT 1
@@ -85,6 +93,7 @@ CREATE TABLE IF NOT EXISTS subjects (
   name TEXT NOT NULL,
   code TEXT UNIQUE,
   category TEXT,
+  grades TEXT,
   teacher_id INTEGER REFERENCES teachers(id)
 );
 
@@ -226,12 +235,109 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS books (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  author TEXT,
+  isbn TEXT,
+  publisher TEXT,
+  category TEXT DEFAULT 'Textbook',
+  year INTEGER,
+  total_copies INTEGER DEFAULT 1,
+  available_copies INTEGER DEFAULT 1,
+  shelf TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS book_issues (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id INTEGER NOT NULL REFERENCES books(id),
+  student_id INTEGER NOT NULL REFERENCES students(id),
+  issue_date TEXT,
+  due_date TEXT,
+  return_date TEXT,
+  status TEXT DEFAULT 'Issued',
+  notes TEXT,
+  issued_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
 """
 
+# ------------------------------------------------------------------ CBC curriculum
+# grades = comma-separated grade numbers the subject is taught in
+SUBJECTS = [
+    ("English", "ENG", "Languages", "1,2,3,4,5,6,7,8,9,10,11,12"),
+    ("Kiswahili", "KIS", "Languages", "1,2,3,4,5,6,7,8,9,10,11,12"),
+    ("Mathematics", "MAT", "Core", "1,2,3,4,5,6,7,8,9,10,11,12"),
+    ("Environmental Activities", "ENV", "Core", "1,2,3"),
+    ("Hygiene & Nutrition Activities", "HGN", "Core", "1,2,3"),
+    ("Movement & Creative Activities", "MCA", "Creative", "1,2,3"),
+    ("Religious Education (CRE)", "CRE", "Humanities", "1,2,3,4,5,6,7,8,9,10,11,12"),
+    ("Integrated Science", "SCI", "Sciences", "4,5,6,7,8,9,10,11,12"),
+    ("Social Studies", "SST", "Humanities", "4,5,6,7,8,9,10,11,12"),
+    ("Creative Arts", "CRA", "Creative", "4,5,6"),
+    ("Agriculture", "AGR", "Technical", "4,5,6,7,8,9,10,11,12"),
+    ("Home Science", "HSC", "Technical", "4,5,6,10,11,12"),
+    ("Physical Education & Sports", "PES", "Core", "4,5,6,7,8,9,10,11,12"),
+    ("Business Studies", "BUS", "Technical", "7,8,9,10,11,12"),
+    ("Pre-Technical & Pre-Career Studies", "PTP", "Technical", "7,8,9"),
+    ("Health Education", "HED", "Sciences", "7,8,9"),
+    ("Life Skills Education", "LSE", "Core", "7,8,9"),
+    ("Biology", "BIO", "Sciences", "10,11,12"),
+    ("Chemistry", "CHE", "Sciences", "10,11,12"),
+    ("Physics", "PHY", "Sciences", "10,11,12"),
+    ("Geography", "GEO", "Humanities", "10,11,12"),
+    ("History & Government", "HGS", "Humanities", "10,11,12"),
+    ("Computer Science", "COM", "Technical", "10,11,12"),
+]
+
+def grades_list(grades_str):
+    return [int(x) for x in (grades_str or "").split(",") if x.strip().isdigit()]
+
+def subject_for_grade(subj, gnum):
+    return gnum in grades_list(subj["grades"])
+
+# ------------------------------------------------------------------ grading scales
+# CBC achievement levels (Grades 1-9) — as used in primary & junior secondary
+CBC_BANDS = [
+    (80, "E", "Exceeding Expectations", 4),
+    (65, "M", "Meeting Expectations", 3),
+    (50, "A", "Approaching Expectations", 2),
+    (0,  "B", "Below Expectations", 1),
+]
+# KCSE 12-point scale (Senior Secondary, Grade 10-12)
+KCSE_BANDS = [
+    (80, 12, "A"),  (75, 11, "A-"), (70, 10, "B+"), (65, 9, "B"), (60, 8, "B-"),
+    (55, 7, "C+"),  (50, 6, "C"),   (45, 5, "C-"),  (40, 4, "D+"), (35, 3, "D"),
+    (30, 2, "D-"),  (0, 1, "E"),
+]
+
+def scale_for_grade(grade_str):
+    try:
+        g = int(str(grade_str).split()[-1])
+    except Exception:
+        return "kcse"
+    return "cbc" if g <= 9 else "kcse"
+
+def grade_for(score, scale="kcse"):
+    if score is None:
+        return None, None
+    if scale == "cbc":
+        for lo, letter, _name, pts in CBC_BANDS:
+            if score >= lo:
+                return letter, pts
+        return "B", 1
+    for lo, pts, letter in KCSE_BANDS:
+        if score >= lo:
+            return letter, pts
+    return "E", 1
+
+# ------------------------------------------------------------------ name banks
 MALE = ["Brian","Kevin","Dennis","Collins","Moses","David","Samuel","Peter","James","John","Daniel",
         "Kelvin","Victor","Emmanuel","Felix","Mark","Anthony","Eric","George","Vincent","Evans",
         "Nicholas","Stephen","Michael","Isaac","Amos","Kiprotich","Kiptoo","Kosgei","Mutua","Kamau",
@@ -279,18 +385,6 @@ def school_days(count, start=datetime.date(2026, 8, 1)):
         d += datetime.timedelta(days=1)
     return days
 
-GRADES = [
-    (80, 12, "A"),  (75, 11, "A-"), (70, 10, "B+"), (65, 9, "B"), (60, 8, "B-"),
-    (55, 7, "C+"),  (50, 6, "C"),   (45, 5, "C-"),  (40, 4, "D+"), (35, 3, "D"),
-    (30, 2, "D-"),  (0, 1, "E"),
-]
-
-def grade_for(score):
-    for lo, pts, letter in GRADES:
-        if score >= lo:
-            return letter, pts
-    return "E", 1
-
 def seed():
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
@@ -301,35 +395,27 @@ def seed():
 
     rnd = random.Random(42)
 
-    # subjects -------------------------------------------------------------
-    subjects = [
-        ("Mathematics", "MAT", "Core"), ("English", "ENG", "Languages"),
-        ("Kiswahili", "KIS", "Languages"), ("Integrated Science", "SCI", "Sciences"),
-        ("Social Studies", "SST", "Humanities"), ("CRE", "CRE", "Humanities"),
-        ("Agriculture", "AGR", "Technical"), ("Business Studies", "BUS", "Technical"),
-    ]
-    cur.executemany("INSERT INTO subjects(name,code,category) VALUES(?,?,?)", subjects)
-    subj_ids = [r["id"] for r in cur.execute("SELECT id FROM subjects ORDER BY id")]
+    # subjects (CBC curriculum) -------------------------------------------
+    cur.executemany("INSERT INTO subjects(name,code,category,grades) VALUES(?,?,?,?)",
+                    [(s[0], s[1], s[2], s[3]) for s in SUBJECTS])
+    subj_rows = cur.execute("SELECT * FROM subjects ORDER BY id").fetchall()
 
     # teachers -------------------------------------------------------------
     teacher_first = ["Jane","Peter","Diana","Samuel","Grace","Kelvin","Esther","David","Mercy","Brian","Ruth","Vincent"]
     teacher_last = ["Atieno","Mwangi","Chebet","Omondi","Wanjiru","Kiptoo","Nyaboke","Kariuki","Achieng","Otieno","Kerubo","Kosgei"]
     teacher_titles = ["Madam","Mr","Madam","Mr","Madam","Mr","Madam","Mr","Madam","Mr","Madam","Mr"]
+    # map teachers to the main CBC subjects
+    teach_subj_idx = [0, 1, 2, 7, 8, 10, 12, 14, 15, 16, 17, 18]  # English, Kis, Math, SCI, SST, AGR, PES, PTP, HED, LSE, BIO, CHE
     teachers = []
     for i, (fn, ln, ttl) in enumerate(zip(teacher_first, teacher_last, teacher_titles)):
         gender = "Female" if ttl == "Madam" else "Male"
         teachers.append((f"TSC-{202001+i}", fn, ln, gender, rand_phone(),
-                         f"{fn.lower()}.{ln.lower()}@greenfield.ac.ke", subj_ids[i % len(subj_ids)], "Permanent"))
+                         f"{fn.lower()}.{ln.lower()}@greenfield.ac.ke", subj_rows[teach_subj_idx[i]]["id"], "Permanent"))
     cur.executemany("""INSERT INTO teachers(tsc_no,first_name,last_name,gender,phone,email,subject_id,employment_type)
                        VALUES(?,?,?,?,?,?,?,?)""", teachers)
     teacher_ids = [r["id"] for r in cur.execute("SELECT id FROM teachers ORDER BY id")]
     for i, tid in enumerate(teacher_ids):
-        cur.execute("UPDATE subjects SET teacher_id=? WHERE id=?", (tid, subj_ids[i % len(subj_ids)]))
-    # keep teachers.subject_id consistent with the final subject assignment
-    cur.execute("UPDATE teachers SET subject_id=NULL")
-    for srow in cur.execute("SELECT id, teacher_id FROM subjects"):
-        if srow["teacher_id"]:
-            cur.execute("UPDATE teachers SET subject_id=? WHERE id=?", (srow["id"], srow["teacher_id"]))
+        cur.execute("UPDATE subjects SET teacher_id=? WHERE id=?", (tid, subj_rows[teach_subj_idx[i]]["id"]))
 
     # classes --------------------------------------------------------------
     class_defs = [
@@ -341,6 +427,7 @@ def seed():
         ("Grade 8 West", "Grade 8", "West", teacher_ids[5], 11),
         ("Grade 9 East", "Grade 9", "East", teacher_ids[6], 12),
         ("Grade 9 West", "Grade 9", "West", teacher_ids[7], 11),
+        ("Grade 10 East", "Grade 10", "East", teacher_ids[8], 10),
     ]
     cur.executemany("""INSERT INTO classes(name,grade,stream,academic_year,capacity,class_teacher_id)
                        VALUES(?,?,?,?,?,?)""",
@@ -350,9 +437,10 @@ def seed():
 
     # students -------------------------------------------------------------
     students, enroll_rows = [], []
-    ages = {1: 7, 2: 8, 3: 9, 4: 10, 5: 11, 6: 12, 7: 13, 8: 14, 9: 15}
+    ages = {1: 7, 7: 13, 8: 14, 9: 15, 10: 16}
     sid = 1
     used_names = set()
+    student_class_id = {}
     for ci, cid in enumerate(class_ids):
         grade = grade_of_class[cid]
         gnum = int(grade.split()[1])
@@ -373,6 +461,7 @@ def seed():
                              pn, rand_phone(), f"{pn.replace(' ','.')}@gmail.com".lower(),
                              rnd.choice(["Kisii Town", "Nyanchwa", "Daraja Mbili", "Mwembe", "Getembe", "Kitutu", "Masongo", "Suneka", "Keroka"]),
                              "Active"))
+            student_class_id[sid] = cid
             for term in ("Term 1", "Term 2", "Term 3"):
                 enroll_rows.append((sid, cid, term, "2026"))
             sid += 1
@@ -382,7 +471,9 @@ def seed():
     student_ids = [r["id"] for r in cur.execute("SELECT id FROM students ORDER BY id")]
     cur.executemany("INSERT INTO enrollments(student_id,class_id,term,academic_year) VALUES(?,?,?,?)", enroll_rows)
 
-    # ability + exam scores -------------------------------------------------
+    gnum_of_student = {st: int(grade_of_class[student_class_id[st]].split()[1]) for st in student_ids}
+
+    # ability + exam scores (CBC subjects per grade) -----------------------
     ability = {st: rnd.gauss(0, 1) for st in student_ids}
     exams = [("End of Term 1 Exam 2026", "Term 1", "Closed"),
              ("End of Term 2 Exam 2026", "Term 2", "Closed"),
@@ -391,19 +482,32 @@ def seed():
                     [(n, t, "2026", s) for n, t, s in exams])
     exam_ids = [r["id"] for r in cur.execute("SELECT id FROM exams ORDER BY id")]
 
-    subject_base = {s[0]: (58.0 + rnd.gauss(0, 4), 9.0) for s in subjects}
-    subject_base.update({"Mathematics": (55.0, 11.0), "English": (57.0, 8.5),
-                         "Kiswahili": (60.0, 8.0), "Integrated Science": (56.0, 10.0)})
+    subject_base = {
+        "English": (57.0, 8.5), "Kiswahili": (60.0, 8.0), "Mathematics": (55.0, 11.0),
+        "Integrated Science": (56.0, 10.0), "Social Studies": (58.0, 8.0),
+        "Environmental Activities": (62.0, 7.0), "Hygiene & Nutrition Activities": (63.0, 7.0),
+        "Movement & Creative Activities": (66.0, 7.0), "Religious Education (CRE)": (61.0, 8.0),
+        "Creative Arts": (64.0, 8.0), "Agriculture": (57.0, 9.0), "Home Science": (59.0, 9.0),
+        "Physical Education & Sports": (68.0, 7.0), "Business Studies": (56.0, 9.0),
+        "Pre-Technical & Pre-Career Studies": (55.0, 9.0), "Health Education": (60.0, 8.0),
+        "Life Skills Education": (62.0, 8.0), "Biology": (54.0, 10.0), "Chemistry": (52.0, 11.0),
+        "Physics": (51.0, 11.0), "Geography": (55.0, 10.0), "History & Government": (57.0, 9.0),
+        "Computer Science": (56.0, 10.0),
+    }
     exam_rows = []
     for ei, eid in enumerate(exam_ids):
         term_progress = [0.9, 1.0, 1.1][ei]
         for st in student_ids:
-            for si, subj in enumerate(subjects):
-                base, sd = subject_base[subj[0]]
+            gnum = gnum_of_student[st]
+            scale = "cbc" if gnum <= 9 else "kcse"
+            for subj in subj_rows:
+                if not subject_for_grade(subj, gnum):
+                    continue
+                base, sd = subject_base.get(subj["name"], (56.0, 9.0))
                 raw = base * term_progress + ability[st] * sd * 0.8 + rnd.gauss(0, sd * 0.5)
                 score = max(8, min(99, round(raw)))
-                letter, pts = grade_for(score)
-                exam_rows.append((eid, st, subj_ids[si], score, letter, pts))
+                letter, pts = grade_for(score, scale)
+                exam_rows.append((eid, st, subj["id"], score, letter, pts))
     cur.executemany("""INSERT INTO exam_scores(exam_id,student_id,subject_id,score,grade,points)
                        VALUES(?,?,?,?,?,?)""", exam_rows)
 
@@ -431,8 +535,7 @@ def seed():
         return ptype_ids["Development Fund"]
 
     # fee structures --------------------------------------------------------
-    fee_amt = {1: 8500, 2: 9000, 3: 9500, 4: 12000, 5: 13500, 6: 15000,
-               7: 18500, 8: 17000, 9: 20000}
+    fee_amt = {1: 8500, 7: 18500, 8: 17000, 9: 20000, 10: 22000}
     fee_rows = []
     for cid in class_ids:
         g = int(grade_of_class[cid].split()[1])
@@ -457,7 +560,6 @@ def seed():
             assign_rows.append((st, rnd.choice(route_ids), "2026", "Active"))
     cur.executemany("""INSERT INTO transport_assignments(student_id,route_id,academic_year,status)
                        VALUES(?,?,?,?)""", assign_rows)
-    assigned = {r[0]: r[1] for r in assign_rows}
 
     tlog_rows = []
     for day in school_days(5):
@@ -471,26 +573,28 @@ def seed():
     cur.executemany("""INSERT INTO transport_log(date,route_id,student_id,period,status)
                        VALUES(?,?,?,?,?)""", tlog_rows)
 
-    # timetable -------------------------------------------------------------
-    subject_teacher = {r["id"]: r["teacher_id"] for r in cur.execute("SELECT id, teacher_id FROM subjects")}
-    slot_teachers = {}      # (day, period) -> set of teacher_ids already placed
+    # timetable (per class, CBC subjects, conflict-free) --------------------
+    subject_teacher = {r["id"]: r["teacher_id"] for r in subj_rows}
+    slot_teachers = {}
     tt_rows = []
     weekdays = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
     for cid in class_ids:
+        gnum = int(grade_of_class[cid].split()[1])
+        class_subjects = [r["id"] for r in subj_rows if subject_for_grade(r, gnum)]
         day_used = {}
         for day in weekdays:
             day_used[day] = set()
             for p in range(1, 9):
-                cand = [s for s in subj_ids
+                cand = [s for s in class_subjects
                         if subject_teacher.get(s) is None
                         or (subject_teacher[s] not in slot_teachers.get((day, p), set())
                             and s not in day_used[day])]
                 if not cand:
-                    cand = [s for s in subj_ids
+                    cand = [s for s in class_subjects
                             if subject_teacher.get(s) is None
                             or subject_teacher[s] not in slot_teachers.get((day, p), set())]
                 if not cand:
-                    cand = subj_ids
+                    cand = class_subjects
                 chosen = rnd.choice(cand)
                 day_used[day].add(chosen)
                 tid = subject_teacher.get(chosen)
@@ -502,13 +606,13 @@ def seed():
     method_pool = ["M-PESA"] * 7 + ["Cash"] * 2 + ["Bank Transfer"] * 1
     pay_rows, receipt = [], 10000
     for st in student_ids:
-        enroll = [r for r in enroll_rows if r[0] == st]
-        class_id = enroll[0][1]
+        class_id = student_class_id[st]
         fee = dict((r[0], r[1]) for r in cur.execute(
             "SELECT term,amount FROM fee_structures WHERE class_id=?", (class_id,)))
         route_fee = 0
-        if st in assigned:
-            rr = cur.execute("SELECT fee FROM transport_routes WHERE id=?", (assigned[st],)).fetchone()
+        ar = [row for row in assign_rows if row[0] == st]
+        if ar:
+            rr = cur.execute("SELECT fee FROM transport_routes WHERE id=?", (ar[0][1],)).fetchone()
             route_fee = rr[0] if rr else 0
         t1 = fee["Term 1"] + route_fee
         paid1 = t1 if rnd.random() < 0.85 else round(t1 * rnd.choice([0.3, 0.5, 0.7]))
@@ -544,6 +648,81 @@ def seed():
                 att_rows.append((day, cid, st, status))
     cur.executemany("INSERT INTO attendance(date,class_id,student_id,status) VALUES(?,?,?,?)", att_rows)
 
+    # library ----------------------------------------------------------------
+    books = [
+        ("Blossoms of the Savannah", "Henry Ole Kulet", "9789966000654", "Oxford University Press", "Set Book", 2008, 12, "Shelf A1"),
+        ("The River and the Source", "Margaret Ogola", "9780195731214", "Phoenix", "Set Book", 1994, 10, "Shelf A1"),
+        ("A Doll's House", "Henrik Ibsen", "9789966081296", "East African Educational", "Set Book", 1879, 8, "Shelf A2"),
+        ("Betrayal in the City", "Francis Imbuga", "9789966469682", "East African Educational", "Set Book", 1976, 9, "Shelf A2"),
+        ("Fathers of Nations", "Paul B. Vitta", "9789966104834", "Oxford University Press", "Set Book", 2021, 11, "Shelf A1"),
+        ("The Caucasian Chalk Circle", "Bertolt Brecht", "9789966469668", "East African Educational", "Set Book", 1944, 7, "Shelf A2"),
+        ("An Enemy of the People", "Henrik Ibsen", "9789966469958", "East African Educational", "Set Book", 1882, 6, "Shelf A2"),
+        ("A Silent Song and Other Stories", "Godwin Siundu", "9789966118794", "Oxford University Press", "Set Book", 2021, 9, "Shelf A3"),
+        ("The Pearl", "John Steinbeck", "9780435272711", "Heinemann", "Set Book", 1947, 8, "Shelf A3"),
+        ("KLB Mathematics Grade 7", "KLB", "9789966655917", "KLB", "Textbook", 2021, 15, "Shelf B1"),
+        ("KLB Mathematics Grade 8", "KLB", "9789966656105", "KLB", "Textbook", 2022, 14, "Shelf B1"),
+        ("KLB Mathematics Grade 9", "KLB", "9789966656280", "KLB", "Textbook", 2023, 12, "Shelf B1"),
+        ("Longhorn Integrated Science G7", "Longhorn", "9789966668429", "Longhorn", "Textbook", 2021, 13, "Shelf B2"),
+        ("Oxford English Learner's Book G7", "Oxford", "9780195748130", "Oxford University Press", "Textbook", 2021, 12, "Shelf B2"),
+        ("Longhorn Kiswahili G7", "Longhorn", "9789966668160", "Longhorn", "Textbook", 2021, 12, "Shelf B3"),
+        ("KLB Social Studies G7", "KLB", "9789966655948", "KLB", "Textbook", 2021, 11, "Shelf B3"),
+        ("Moran Agriculture G7", "Moran", "9789966630716", "Moran Publishers", "Textbook", 2021, 10, "Shelf C1"),
+        ("Business Studies G7", "KLB", "9789966655863", "KLB", "Textbook", 2021, 9, "Shelf C1"),
+        ("Pre-Technical & Pre-Career G7", "Longhorn", "9789966668306", "Longhorn", "Textbook", 2021, 10, "Shelf C2"),
+        ("Health Education G7", "KLB", "9789966655894", "KLB", "Textbook", 2021, 8, "Shelf C2"),
+        ("Life Skills Education G7", "Moran", "9789966630846", "Moran Publishers", "Textbook", 2021, 8, "Shelf C3"),
+        ("Oxford English Dictionary", "Oxford", "9780199576375", "Oxford University Press", "Reference", 2010, 4, "Shelf D1"),
+        ("Cambridge Kiswahili Dictionary", "Longhorn", "9789966498293", "Longhorn", "Reference", 2015, 3, "Shelf D1"),
+        ("Atlas for Kenya Schools", "KLB", "9789966655207", "KLB", "Reference", 2018, 5, "Shelf D2"),
+        ("Encyclopaedia Britannica (Vol 1-4)", "Britannica", "9781593392932", "Encyclopaedia Britannica", "Reference", 2007, 4, "Shelf D3"),
+        ("Things Fall Apart", "Chinua Achebe", "9780435905254", "Heinemann", "Fiction", 1958, 6, "Shelf E1"),
+        ("Weep Not, Child", "Ngugi wa Thiong'o", "9780435908309", "Heinemann", "Fiction", 1964, 5, "Shelf E1"),
+        ("The Old Man and the Sea", "Ernest Hemingway", "9780684801223", "Scribner", "Fiction", 1952, 5, "Shelf E2"),
+        ("Animal Farm", "George Orwell", "9780452284241", "Penguin", "Fiction", 1945, 6, "Shelf E2"),
+        ("Longhorn Business Studies G8", "Longhorn", "9789966668450", "Longhorn", "Textbook", 2022, 9, "Shelf C1"),
+        ("The Hitchhiker's Guide to the Galaxy", "Douglas Adams", "9780345391803", "Del Rey", "Fiction", 1979, 3, "Shelf E3"),
+        ("Mfalme Mfalume", "E. Kezilahabi", "9789976911009", "Tanzania Publishing", "Fiction", 1972, 2, "Shelf E3"),
+    ]
+    cur.executemany(
+        "INSERT INTO books(title,author,isbn,publisher,category,year,total_copies,available_copies,shelf) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        [(b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[6], b[7]) for b in books])
+    book_ids = [r["id"] for r in cur.execute("SELECT id FROM books ORDER BY id")]
+
+    # issue history: borrow/return records with realistic statuses
+    import datetime as _dt2
+    issue_rows = []
+    today = _dt2.date(2026, 8, 11)
+    for st in student_ids:
+        if rnd.random() < 0.45:
+            n = rnd.choice([1, 1, 1, 2, 2, 3])
+            for _ in range(n):
+                bid = rnd.choice(book_ids)
+                issued = today - _dt2.timedelta(days=rnd.randint(3, 45))
+                due = issued + _dt2.timedelta(days=14)
+                roll = rnd.random()
+                if roll < 0.45:
+                    ret = issued + _dt2.timedelta(days=rnd.randint(3, 14))
+                    issue_rows.append((bid, st, issued.isoformat(), due.isoformat(), ret.isoformat(), "Returned", "Librarian"))
+                elif roll < 0.70:
+                    ret = issued + _dt2.timedelta(days=rnd.randint(15, 22))
+                    issue_rows.append((bid, st, issued.isoformat(), due.isoformat(), ret.isoformat(), "Returned", "Librarian"))
+                elif roll < 0.90:
+                    issue_rows.append((bid, st, issued.isoformat(), due.isoformat(), None, "Issued", "Librarian"))
+                else:
+                    overdue_due = today - _dt2.timedelta(days=rnd.randint(1, 9))
+                    issued2 = overdue_due - _dt2.timedelta(days=14)
+                    issue_rows.append((bid, st, issued2.isoformat(), overdue_due.isoformat(), None, "Overdue", "Librarian"))
+    cur.executemany(
+        "INSERT INTO book_issues(book_id,student_id,issue_date,due_date,return_date,status,issued_by) "
+        "VALUES(?,?,?,?,?,?,?)", issue_rows)
+
+    # sync available copies with active issues
+    for bid in book_ids:
+        active = cur.execute("SELECT COUNT(*) c FROM book_issues WHERE book_id=? AND status IN ('Issued','Overdue')", (bid,)).fetchone()["c"]
+        total = cur.execute("SELECT total_copies t FROM books WHERE id=?", (bid,)).fetchone()["t"]
+        cur.execute("UPDATE books SET available_copies=? WHERE id=?", (max(0, total - active), bid))
+
     # announcements ---------------------------------------------------------
     ann = [
         ("Term 3 Opening", "School reopens for Term 3 on Monday 4th May 2026 at 7:30am. Parents are reminded to clear Term 2 balances.", "All", "Admin"),
@@ -573,7 +752,6 @@ def seed():
     }
     cur.executemany("INSERT INTO settings(key,value) VALUES(?,?)", list(settings.items()))
 
-
     # users -----------------------------------------------------------------
     def phash(p):
         return hashlib.sha256(p.encode()).hexdigest()
@@ -583,14 +761,15 @@ def seed():
         ("jmwangi", phash("teacher123"), "Mr Peter Mwangi", "teacher", teacher_ids[1]),
         ("accounts", phash("accounts123"), "Finance Officer", "accounts", None),
         ("finance", phash("accounts123"), "Accounts Clerk", "accounts", None),
+        ("librarian", phash("librarian123"), "Mr. Daniel Omondi", "librarian", None),
     ]
     for uname, ph, full, role, tid in users:
         cur.execute("INSERT INTO users(username,password_hash,full_name,role,teacher_id) VALUES(?,?,?,?,?)",
                     (uname, ph, full, role, tid))
 
-    # guardian (parent) accounts — one per unique parent phone, linked to their children
+    # guardian (parent) accounts -------------------------------------------
     guardian_links = []
-    parent_users = {}   # phone -> user id
+    parent_users = {}
     students_with_phone = cur.execute("""SELECT id, parent_name, parent_phone FROM students
                                          WHERE parent_phone IS NOT NULL AND parent_phone != ''""").fetchall()
     for row in students_with_phone:
@@ -604,9 +783,9 @@ def seed():
         guardian_links.append((parent_users[phone], row["id"]))
     cur.executemany("INSERT INTO guardian_links(user_id,student_id) VALUES(?,?)", guardian_links)
 
-    # seed a little activity history so the feed feels alive
+    # activity history ------------------------------------------------------
     acts = [
-        ("admin", "System", "Database initialised", "Sample school data loaded for 2026", "2026-05-02 08:00:00"),
+        ("admin", "System", "Database initialised", "CBC curriculum loaded for 2026", "2026-05-02 08:00:00"),
         ("admin", "System", "Term 2 results published", "End of Term 2 Exam 2026 closed & results released", "2026-04-25 16:30:00"),
         ("admin", "School Administrator", "Fees loaded", "Term 1 & Term 2 fee structures set for all classes", "2026-05-03 09:15:00"),
         ("jmwangi", "Mr Peter Mwangi", "Marks entered", "End of Term 3 Exam 2026 — Grade 7 East mathematics", "2026-08-05 11:20:00"),
@@ -620,10 +799,11 @@ def seed():
     conn.commit()
     conn.close()
     print(f"Seeded OK: {len(student_ids)} students, {len(teacher_ids)} teachers, "
-          f"{len(class_ids)} classes, {len(subjects)} subjects, {len(exam_ids)} exams, "
-          f"{len(pay_rows)} payments, {len(att_rows)} attendance, {len(route_ids)} routes, "
-          f"{len(assign_rows)} transport assignments, {len(tlog_rows)} transport log entries, "
-          f"{len(tt_rows)} timetable slots, {len(parent_users)} guardian accounts.")
+          f"{len(class_ids)} classes, {len(subj_rows)} CBC subjects, {len(exam_ids)} exams, "
+          f"{len(exam_rows)} exam scores, {len(pay_rows)} payments, {len(att_rows)} attendance, "
+          f"{len(route_ids)} routes, {len(assign_rows)} transport assignments, "
+          f"{len(tt_rows)} timetable slots, {len(parent_users)} guardian accounts, "
+          f"{len(book_ids)} books, {len(issue_rows)} library records.")
 
 if __name__ == "__main__":
     seed()
