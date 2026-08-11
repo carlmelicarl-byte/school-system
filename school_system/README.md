@@ -4,9 +4,8 @@ A complete, professional school management platform modelled on **Zeraki** (Anal
 
 ### 📚 The Kenyan CBC curriculum, built in
 - **Subject sets per grade band**: Lower Primary (Grade 1–3), Upper Primary (Grade 4–6), Junior Secondary (Grade 7–9) and Senior Secondary (Grade 10–12) — e.g. Grade 1 takes English, Kiswahili, Mathematics, Environmental Activities, Hygiene & Nutrition, Movement & Creative Activities and CRE; Grade 7–9 adds Integrated Science, Social Studies, Business Studies, Pre-Technical & Pre-Career Studies, Health Education, Life Skills and PE & Sports; Grade 10–12 adds Biology, Chemistry, Physics, Geography, History & Government and Computer Science
-- **CBC achievement-level grading for Grades 1–9** (as used in primary & junior secondary): **E** = Exceeding Expectations (80%+), **M** = Meeting Expectations (65%+), **A** = Approaching Expectations (50%+), **B** = Below Expectations (<50%)
-- **KCSE 12-point scale (A–E) for Senior Secondary (Grade 10–12)**
-- Marks entry, analytics, report cards and the parent portal all grade automatically per the student's class
+- **CBC achievement-level grading in every grade** (primary, junior secondary and senior secondary): **E** = Exceeding Expectations (80%+), **M** = Meeting Expectations (65%+), **A** = Approaching Expectations (50%+), **B** = Below Expectations (<50%)
+- Marks entry, analytics, report cards and the parent portal all grade automatically with the E/M/A/B levels
 
 ---
 
@@ -62,7 +61,7 @@ Parent accounts are created automatically from student records: username = the p
 ### 📝 Exams & Marks Entry
 - Create exams by term; open/close status
 - Spreadsheet-style marks entry per class — live mean & grade, dirty-change tracking, bulk save
-- **Automatic CBC grading**: subjects and grade scale adapt to the class (CBC achievement levels for Grades 1–9, KCSE 12-point for Grades 10–12)
+- **Automatic CBC grading**: subjects adapt to the class; every grade uses the CBC achievement levels (E / M / A / B)
 
 ### 📈 Analytics
 - Overall mean, top student, best class, grade distribution, gender performance

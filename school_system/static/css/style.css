@@ -375,6 +375,26 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
 .tt-break td{background:#f8fafc!important;color:var(--muted);font-size:11.5px;font-weight:700;letter-spacing:.06em;text-align:center!important;height:30px}
 .tt-load-badge{display:inline-flex;align-items:center;gap:6px;background:var(--green-100);color:var(--green-dark);font-weight:700;font-size:12px;padding:5px 11px;border-radius:999px}
 
+/* ---------- searchable student picker (library issue) ---------- */
+.stu-picker{position:relative}
+.stu-picker .search-wrap{width:100%}
+.stu-picker .search-wrap .input{width:100%;min-width:0;padding-left:32px}
+.stu-picker-results{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;
+  border:1.5px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg);z-index:60;
+  max-height:250px;overflow-y:auto;display:none}
+.stu-picker-results.open{display:block}
+.stu-picker-item{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9}
+.stu-picker-item:last-child{border-bottom:0}
+.stu-picker-item:hover{background:var(--green-50)}
+.stu-picker-item b{font-size:13px}
+.stu-picker-item small{color:var(--muted);font-size:11.5px;display:block}
+.stu-picker-empty{padding:14px 12px;text-align:center;color:var(--muted);font-size:12.5px}
+.picked-chip{display:flex;align-items:center;gap:10px;background:var(--green-50);
+  border:1px solid var(--green-100);border-radius:9px;padding:8px 12px;margin-top:8px;font-size:13px}
+.picked-chip b{font-size:13px}
+.picked-chip .clear{margin-left:auto;cursor:pointer;color:var(--muted);font-weight:700;padding:2px 6px;border-radius:6px}
+.picked-chip .clear:hover{color:var(--red);background:#fee2e2}
+
 /* ---------- receipts ---------- */
 .receipt-sheet{background:#fff;border:2px solid #0f172a;border-radius:4px;max-width:580px;margin:0 auto;padding:26px 28px;font-size:12.5px;color:var(--ink)}
 .r-head2{display:flex;gap:14px;align-items:center;border-bottom:2.5px solid #0f172a;padding-bottom:12px}

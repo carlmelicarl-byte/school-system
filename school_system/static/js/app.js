@@ -23,24 +23,19 @@ const CBC_LEVELS = {
   A: { name: "Approaching Expectations", band: "50% – 64%", cls: "gAp" },
   B: { name: "Below Expectations",     band: "0% – 49%",   cls: "gBe" },
 };
-const KCSE_BANDS_LABEL = "A (80+) · A- (75+) · B+ (70+) · B (65+) · B- (60+) · C+ (55+) · C (50+) · C- (45+) · D+ (40+) · D (35+) · D- (30+) · E (<30)";
-const scaleForGrade = (g) => { const n = parseInt(String(g || "Grade 7").split(" ").pop(), 10); return (!isNaN(n) && n <= 9) ? "cbc" : "kcse"; };
-const gradeClass = (g, scale) => {
+const CBC_LABEL = "CBC Achievement Levels: E = Exceeding (80%+) · M = Meeting (65%+) · A = Approaching (50%+) · B = Below (under 50%)";
+const scaleForGrade = () => "cbc";
+const gradeClass = (g) => {
   if (!g || g === "-") return "gNone";
-  if (scale === "cbc") return (CBC_LEVELS[g] || { cls: "gNone" }).cls;
-  return "g" + g[0];
+  return (CBC_LEVELS[g] || { cls: "gNone" }).cls;
 };
-const meanGradeFromPts = (p, scale) => {
+const meanGradeFromPts = (p) => {
   if (p === null || p === undefined) return "—";
-  if (scale === "cbc") return p >= 3.5 ? "E" : p >= 2.5 ? "M" : p >= 1.5 ? "A" : "B";
-  return p >= 11.5 ? "A" : p >= 10.5 ? "A-" : p >= 9.5 ? "B+" : p >= 8.5 ? "B" : p >= 7.5 ? "B-" :
-         p >= 6.5 ? "C+" : p >= 5.5 ? "C" : p >= 4.5 ? "C-" : p >= 3.5 ? "D+" : p >= 2.5 ? "D" : "E";
+  return p >= 3.5 ? "E" : p >= 2.5 ? "M" : p >= 1.5 ? "A" : "B";
 };
-const scaleLegendHtml = (scale) => scale === "cbc"
-  ? `<div class="chart-legend" style="margin-top:10px">
-      ${Object.keys(CBC_LEVELS).map(k => `<span><span class="dot" style="background:${({E:"#16a34a",M:"#0ea5e9",A:"#f59e0b",B:"#ef4444"})[k]}"></span><b>${k}</b> — ${CBC_LEVELS[k].name} (${CBC_LEVELS[k].band})</span>`).join("")}
-    </div>`
-  : `<div class="chart-legend" style="margin-top:10px"><span style="font-size:12px;color:var(--slate)">KCSE 12-point: ${KCSE_BANDS_LABEL}</span></div>`;
+const scaleLegendHtml = () => `<div class="chart-legend" style="margin-top:10px">
+    ${Object.keys(CBC_LEVELS).map(k => `<span><span class="dot" style="background:${({E:"#16a34a",M:"#0ea5e9",A:"#f59e0b",B:"#ef4444"})[k]}"></span><b>${k}</b> — ${CBC_LEVELS[k].name} (${CBC_LEVELS[k].band})</span>`).join("")}
+  </div>`;
 const initials = (name) => (name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 const typeBadge = (cat) => ({ Fees: "b-blue", Transport: "b-green", Other: "b-amber" }[cat] || "b-slate");
 const TYPE_COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#ec4899", "#0ea5e9", "#ef4444", "#14b8a6"];
@@ -984,8 +979,8 @@ async function studentDetail(id) {
   const totalPaid = (d.payments || []).reduce((a, p) => a + p.amount, 0);
   const tr = d.transport && d.transport[0];
   const name = d.first_name + " " + (d.middle_name ? d.middle_name + " " : "") + d.last_name;
-  const dScale = perf ? (perf.scale || "kcse") : "kcse";
-  const mg = latest ? meanGradeFromPts(latest.avg_pts, dScale) : null;
+  const dScale = "cbc";
+  const mg = latest ? meanGradeFromPts(latest.avg_pts) : null;
   modal(`
   <div class="modal-head"><h3 style="display:flex;align-items:center;gap:10px">${avatarHtml(d.profile_pic, name, "avatar-sm")} ${esc(name)}</h3>
     <button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
@@ -1267,7 +1262,7 @@ async function view_subjects(el) {
     $("#sub-body").innerHTML = `
       <p style="font-size:13px;color:var(--slate);margin-bottom:14px">
         The current <b>Kenyan Competency-Based Curriculum (CBC)</b> structures learning into four bands.
-        Grades 1–9 use <b>CBC achievement levels</b> (E, M, A, B); Grades 10–12 (Senior School) use the <b>KCSE 12-point scale</b>.</p>
+        Every grade uses the <b>CBC achievement levels</b> (E = Exceeding, M = Meeting, A = Approaching, B = Below).</p>
       <div class="grid-2">
       ${bands.map(b => `
         <div class="card">
@@ -1280,8 +1275,7 @@ async function view_subjects(el) {
       </div>
       <div class="card" style="margin-top:16px">
         <div class="card-head"><h3>How grades work (${esc(state.settings.current_term || "Term")})</h3></div>
-        ${scaleLegendHtml("cbc")}
-        ${scaleLegendHtml("kcse")}
+        ${scaleLegendHtml()}
       </div>`;
   };
   $("#sub-tab-list").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#sub-tab-list").classList.add("active"); renderList(); });
@@ -1423,9 +1417,7 @@ async function view_examDetail(el, params) {
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:10px">${scale === "cbc"
-      ? "This class uses the <b>Kenyan CBC achievement levels</b> — E = Exceeding (80%+), M = Meeting (65%+), A = Approaching (50%+), B = Below (under 50%)."
-      : "This class uses the <b>KCSE 12-point scale</b> — A (80+) · A- (75+) · B+ (70+) · … · E (below 30)."} Scores auto-grade; click <b>Save Marks</b> to persist changes.</p>`;
+    <p style="font-size:12px;color:var(--muted);margin-top:10px">This class uses the <b>Kenyan CBC achievement levels</b> — E = Exceeding (80%+), M = Meeting (65%+), A = Approaching (50%+), B = Below (under 50%). Scores auto-grade; click <b>Save Marks</b> to persist changes.</p>`;
   const dirty = new Set();
   $$(".marks-table input").forEach(inp => {
     inp.addEventListener("input", () => {
@@ -1444,11 +1436,9 @@ async function view_examDetail(el, params) {
     });
     $("#mean-" + st).textContent = cnt ? fmtNum(total / cnt) : "—";
     const avg = cnt ? total / cnt : null;
-    const g = avg === null ? "" : scale === "cbc"
-      ? (avg >= 80 ? "E" : avg >= 65 ? "M" : avg >= 50 ? "A" : "B")
-      : (avg >= 80 ? "A" : avg >= 75 ? "A-" : avg >= 70 ? "B+" : avg >= 65 ? "B" : avg >= 60 ? "B-" : avg >= 55 ? "C+" : avg >= 50 ? "C" : avg >= 45 ? "C-" : avg >= 40 ? "D+" : avg >= 35 ? "D" : avg >= 30 ? "D-" : "E");
+    const g = avg === null ? "" : (avg >= 80 ? "E" : avg >= 65 ? "M" : avg >= 50 ? "A" : "B");
     const pill = $("#gp-" + st);
-    if (g) { pill.textContent = g; pill.className = "grade-pill " + gradeClass(g, scale); }
+    if (g) { pill.textContent = g; pill.className = "grade-pill " + gradeClass(g); }
     else { pill.textContent = "—"; pill.className = "grade-pill gNone"; }
   }
   const saveBtn = $("#md-save");
@@ -1520,7 +1510,7 @@ async function view_analytics(el, params) {
           <td><span class="badge b-slate">${esc(r.admission_no)}</span></td>
           <td class="pill-link" onclick="studentDetail(${r.student_id})">${esc(r.name)}</td><td>${esc(r.class_name)}</td>
           <td class="num"><b>${fmtNum(r.mean)}</b></td>
-          <td><span class="grade-pill ${gradeClass(r.mean_grade, r.scale)}">${esc(r.mean_grade)}</span></td>
+          <td><span class="grade-pill ${gradeClass(r.mean_grade)}">${esc(r.mean_grade)}</span></td>
           <td class="num">${r.class_pos}/${r.class_size}</td></tr>`).join("")}
     </tbody></table></div>
 
@@ -1532,12 +1522,7 @@ async function view_analytics(el, params) {
     <thead><tr><th>#</th><th>Adm No</th><th>Student</th><th>Class</th><th class="num">Mean</th><th>Mean Grade</th><th class="num">Class Pos</th><th class="num">Points</th></tr></thead>
     <tbody id="an-body">${rankedRows(x.ranked)}</tbody></table></div>`;
 
-  const hasCBC = x.ranked.some(r => r.scale === "cbc");
-  const hasKCSE = x.ranked.some(r => r.scale === "kcse");
-  let legendHtml = "";
-  if (hasCBC) legendHtml += scaleLegendHtml("cbc");
-  if (hasKCSE) legendHtml += scaleLegendHtml("kcse");
-  $("#an-grade-legend").innerHTML = legendHtml;
+  $("#an-grade-legend").innerHTML = scaleLegendHtml();
   vbarChart($("#an-grade"), x.grade_dist.filter(g => g.count > 0).map(g => ({
     label: g.grade, value: g.count,
     color: g.grade === "E" ? "#16a34a" : g.grade === "M" ? "#0ea5e9" : g.grade === "A" ? "#f59e0b" : g.grade === "B" ? "#ef4444"
@@ -1566,7 +1551,7 @@ function rankedRows(rows) {
       <td class="pill-link" onclick="studentDetail(${r.student_id})">${esc(r.name)}</td>
       <td>${esc(r.class_name)}</td>
       <td class="num"><b>${fmtNum(r.mean)}</b></td>
-      <td><span class="grade-pill ${gradeClass(r.mean_grade, r.scale)}" title="${esc(r.scale === "cbc" ? (CBC_LEVELS[r.mean_grade] || {}).name || "" : r.mean_grade)}">${esc(r.mean_grade)}</span></td>
+      <td><span class="grade-pill ${gradeClass(r.mean_grade)}" title="${esc((CBC_LEVELS[r.mean_grade] || {}).name || "")}">${esc(r.mean_grade)}</span></td>
       <td class="num">${r.class_pos}/${r.class_size}</td>
       <td class="num">${r.total_points}</td></tr>`).join("");
 }
@@ -1598,8 +1583,8 @@ async function view_reportcard(el, params) {
     const d = await api(`/api/analytics/student/${sid}?exam_id=${eid}`);
     const s = d.student, agg = d.agg, ex = d.selected_exam;
     if (!agg) { $("#rc-area").innerHTML = '<div class="empty">No results for this student in the selected exam.</div>'; return; }
-    const scale = d.scale || scaleForGrade(s.class ? s.class.grade : "Grade 7");
-    const meanGrade = meanGradeFromPts(agg.avg_pts, scale);
+    const scale = "cbc";
+    const meanGrade = meanGradeFromPts(agg.avg_pts);
     const set = state.settings || {};
     const comments = await api(`/api/exams/${eid}/comments`);
     const savedComment = comments[sid] || "";
@@ -1630,21 +1615,18 @@ async function view_reportcard(el, params) {
           ${d.per_subject.map((p, i) => `
             <tr><td>${i + 1}</td><td><b>${esc(p.name)}</b></td>
             <td class="num">${fmtNum(p.score)}</td>
-            <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade, scale)}" title="${esc(scale === "cbc" ? (CBC_LEVELS[p.grade] || {}).name || "" : p.grade)}">${esc(p.grade)}</span></td>
+            <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade)}" title="${esc((CBC_LEVELS[p.grade] || {}).name || "")}">${esc(p.grade)}</span></td>
             <td class="num">${p.points}</td>
             <td class="num">${fmtNum(p.subject_mean)}</td></tr>`).join("")}
         </tbody>
       </table>
       <div class="r-summary">
         <div class="box"><b>${fmtNum(agg.mean)}</b><span>Mean Score</span></div>
-        <div class="box"><b>${meanGrade}</b><span>${scale === "cbc" ? "Achievement Level" : "Mean Grade"}</span></div>
-        <div class="box"><b>${agg.total_points}</b><span>${scale === "cbc" ? "Level Points" : "Total Points"}</span></div>
+        <div class="box"><b>${meanGrade}</b><span>Achievement Level</span></div>
+        <div class="box"><b>${agg.total_points}</b><span>Level Points</span></div>
         <div class="box"><b>${d.class_rank || "—"} / ${d.class_size || "—"}</b><span>Class Position</span></div>
       </div>
-      <p style="font-size:10.5px;color:var(--slate);text-align:center;margin-top:4px">
-        ${scale === "cbc"
-          ? "CBC Achievement Levels: E = Exceeding (80%+) · M = Meeting (65%+) · A = Approaching (50%+) · B = Below (under 50%)"
-          : "KCSE 12-point scale: " + KCSE_BANDS_LABEL}</p>
+      <p style="font-size:10.5px;color:var(--slate);text-align:center;margin-top:4px">${CBC_LABEL}</p>
       <p style="font-size:12.5px"><b>Teacher's comment:</b></p>
       <div class="r-comment">${esc(savedComment || "A good performance. Keep working hard. — " + (set.school_name || "School"))}</div>
       <div class="r-sign">
@@ -2443,24 +2425,21 @@ async function showReceipt(pid) {
 function printReceipt() {
   const sheet = document.getElementById("receipt-sheet");
   if (!sheet) { toast("Receipt not ready", "err"); return; }
-  let f = document.getElementById("print-frame");
-  if (!f) {
-    f = document.createElement("iframe");
-    f.id = "print-frame";
-    f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
-    document.body.appendChild(f);
-  }
-  // clone the sheet and absolutize image srcs so the logo loads inside the print frame
-  const clone = sheet.cloneNode(true);
-  clone.querySelectorAll("img").forEach(img => {
-    if (img.src && img.src.startsWith("/")) img.src = location.origin + img.src;
-  });
-  const doc = f.contentDocument;
-  doc.open();
-  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Receipt</title>${RECEIPT_CSS}</head><body>${clone.outerHTML}</body></html>`);
-  doc.close();
-  f.contentWindow.focus();
-  setTimeout(() => f.contentWindow.print(), 120);
+  // Hide the entire app (sidebar, topbar, finance tables...) so ONLY the
+  // receipt prints. The @media print CSS for body.receipt-mode does the rest.
+  document.body.classList.add("receipt-mode");
+  // give the CSS a moment to apply, then print the main window (reliable in
+  // every browser — unlike printing from a hidden iframe, which is blocked)
+  setTimeout(() => {
+    try {
+      window.focus();
+      window.print();
+    } catch (e) {
+      try { window.print(); } catch (e2) {
+        toast("Your browser blocked printing — press Ctrl+P instead", "err");
+      }
+    }
+  }, 120);
 }
 
 /* ============================================================
@@ -2803,10 +2782,16 @@ async function issueForm(bookId) {
       <option value="">— select book —</option>
       ${books.filter(b => b.available_copies > 0).map(b => `<option value="${b.id}" ${String(b.id) === String(selBook) ? "selected" : ""}>${esc(b.title)} — ${b.available_copies} available</option>`).join("")}
     </select></div>
-    <div class="full"><label>Student</label><select id="iss-student" class="input">
-      <option value="">— select student —</option>
-      ${students.filter(s => s.status === "Active").map(s => `<option value="${s.id}">${esc(s.first_name + " " + s.last_name)} — ${esc(s.admission_no)} (${esc(s.class_name || "unplaced")})</option>`).join("")}
-    </select></div>
+    <div class="full">
+      <label>Student * <small style="font-weight:500;color:var(--muted)">search by name or admission number</small></label>
+      <div class="stu-picker">
+        <div class="search-wrap"><svg><use href="#i-search"/></svg>
+          <input id="iss-search" class="input" placeholder="Type a name or admission no… (e.g. Collins or GF/…) " autocomplete="off"></div>
+        <input type="hidden" id="iss-student">
+        <div class="stu-picker-results" id="iss-results"></div>
+      </div>
+      <div class="picked-chip" id="iss-picked" style="display:none"></div>
+    </div>
     <div><label>Due date (14 days default)</label><input id="iss-due" class="input" type="date" value="${due}"></div>
     <div><label>Notes</label><input id="iss-notes" class="input" placeholder="optional"></div>
   </div></div>
@@ -2814,9 +2799,71 @@ async function issueForm(bookId) {
     <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" id="iss-save"><svg><use href="#i-book"/></svg> Issue Book</button>
   </div>`);
+  // ---- searchable student picker (name or admission number) ----
+  const active = students.filter(s => s.status === "Active");
+  let selSid = null;
+  function clearSel() {
+    selSid = null;
+    $("#iss-student").value = "";
+    $("#iss-picked").style.display = "none";
+    $("#iss-picked").innerHTML = "";
+    $("#iss-search").value = "";
+    $("#iss-search").focus();
+  }
+  function renderResults(q) {
+    const box = $("#iss-results");
+    const ql = (q || "").trim().toLowerCase();
+    if (!ql) { box.classList.remove("open"); box.innerHTML = ""; return; }
+    const matches = active.filter(s =>
+      (s.first_name + " " + (s.middle_name || "") + " " + s.last_name + " " + (s.admission_no || "")).toLowerCase().includes(ql)
+    ).slice(0, 12);
+    if (!matches.length) {
+      box.innerHTML = '<div class="stu-picker-empty">No students found — check the name or admission number</div>';
+      box.classList.add("open");
+      return;
+    }
+    box.innerHTML = matches.map(s => `
+      <div class="stu-picker-item" data-sid="${s.id}">
+        ${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}
+        <div><b>${esc(s.first_name + " " + s.last_name)}</b>
+          <small>${esc(s.admission_no)} · ${esc(s.class_name || "unplaced")}</small></div>
+        <svg style="width:14px;height:14px;margin-left:auto;color:var(--muted)"><use href="#i-arrow"/></svg>
+      </div>`).join("");
+    box.classList.add("open");
+  }
+  $("#iss-search").addEventListener("input", e => renderResults(e.target.value));
+  $("#iss-search").addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const first = $("#iss-results .stu-picker-item");
+      if (first) first.click();
+    }
+  });
+  // blur hides the list after a short delay so a click on an item still registers
+  $("#iss-search").addEventListener("blur", () => setTimeout(() => {
+    const box = $("#iss-results"); if (box) box.classList.remove("open");
+  }, 180));
+  $("#iss-results").addEventListener("click", e => {
+    const item = e.target.closest(".stu-picker-item");
+    if (!item) return;
+    selSid = Number(item.dataset.sid);
+    const s = active.find(x => x.id === selSid);
+    if (!s) return;
+    $("#iss-student").value = selSid;
+    const chip = $("#iss-picked");
+    chip.style.display = "flex";
+    chip.innerHTML = `${avatarHtml(s.profile_pic, s.first_name + " " + s.last_name, "avatar-sm")}
+      <div><b>${esc(s.first_name + " " + s.last_name)}</b>
+      <small style="display:block;color:var(--muted)">${esc(s.admission_no)} · ${esc(s.class_name || "unplaced")}</small></div>
+      <span class="clear" title="Clear selection">✕</span>`;
+    chip.querySelector(".clear").addEventListener("click", clearSel);
+    $("#iss-search").value = "";
+    const box = $("#iss-results"); box.classList.remove("open"); box.innerHTML = "";
+  });
+  // ---- save ----
   $("#iss-save").addEventListener("click", async () => {
     const bid = $("#iss-book").value, sid = $("#iss-student").value;
-    if (!bid || !sid) { toast("Select a book and a student", "err"); return; }
+    if (!bid || !sid) { toast("Select a book and search & select a student", "err"); return; }
     try {
       await api("/api/library/issue", { method: "POST", body: { book_id: Number(bid), student_id: Number(sid), due_date: $("#iss-due").value, notes: $("#iss-notes").value.trim() } });
       toast("Book issued to student");
@@ -2879,7 +2926,7 @@ async function view_gdash(el) {
   ${await gChildSwitcher(el)}
   <div class="stat-grid">
     ${statCard("green", "i-chart", ex ? fmtNum(ex.mean) : "—", "Latest mean", ex ? esc(ex.exam_name) : "No results yet")}
-    ${statCard("blue", "i-users", ex ? esc(meanGradeFromPts(ex.avg_pts, d.scale)) : "—", d.scale === "cbc" ? "Achievement level" : "Mean grade", ex ? "Rank " + (ex.class_rank || "—") + " of " + (ex.class_size || "—") : "—")}
+    ${statCard("blue", "i-users", ex ? esc(meanGradeFromPts(ex.avg_pts)) : "—", "Achievement level", ex ? "Rank " + (ex.class_rank || "—") + " of " + (ex.class_size || "—") : "—")}
     ${statCard(ex && d.balance > 0 ? "red" : "green", "i-money", fmtMoney(d.balance), "Fee balance", ex ? esc(d.term) : "—")}
     ${statCard("amber", "i-bus", tr ? esc(tr.name) : "—", "Transport", tr ? tr.morning_time + " – " + tr.evening_time : "Not enrolled")}
   </div>
@@ -2889,10 +2936,10 @@ async function view_gdash(el) {
       ${ex ? `
         <div class="kgrid" style="grid-template-columns:repeat(3,1fr)">
           <div class="kpi"><div class="k">Mean score</div><div class="v">${fmtNum(ex.mean)}</div></div>
-          <div class="kpi"><div class="k">${d.scale === "cbc" ? "Achievement level" : "Mean grade"}</div><div class="v"><span class="grade-pill ${gradeClass(meanGradeFromPts(ex.avg_pts, d.scale), d.scale)}">${esc(meanGradeFromPts(ex.avg_pts, d.scale))}</span></div></div>
+          <div class="kpi"><div class="k">Achievement level</div><div class="v"><span class="grade-pill ${gradeClass(meanGradeFromPts(ex.avg_pts))}">${esc(meanGradeFromPts(ex.avg_pts))}</span></div></div>
           <div class="kpi"><div class="k">Class position</div><div class="v" style="font-size:15px">${ex.class_rank || "—"} / ${ex.class_size || "—"}</div></div>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-top:8px">${d.scale === "cbc" ? "CBC levels: E=Exceeding (80%+) · M=Meeting (65%+) · A=Approaching (50%+) · B=Below (&lt;50%)" : KCSE_BANDS_LABEL}</p>
+        <p style="font-size:11px;color:var(--muted);margin-top:8px">${CBC_LABEL}</p>
         <div style="margin-top:14px"><button class="btn btn-outline btn-sm" onclick="openView('gresults')">Full results <svg style="width:13px;height:13px"><use href="#i-arrow"/></svg></button></div>`
       : '<p style="color:var(--muted)">No exam results published yet.</p>'}
     </div>
@@ -2944,7 +2991,7 @@ async function view_gresults(el, params) {
     $("#g-res-body").innerHTML = `
     <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
       ${statCard("green", "i-chart", fmtNum(d.agg.mean), "Mean score", esc(d.selected_exam.name))}
-      ${statCard("blue", "i-users", esc(meanGradeFromPts(d.agg.avg_pts, d.scale)), d.scale === "cbc" ? "Achievement level" : "Mean grade", d.agg.total_points + " points")}
+      ${statCard("blue", "i-users", esc(meanGradeFromPts(d.agg.avg_pts)), "Achievement level", d.agg.total_points + " points")}
       ${statCard("violet", "i-users", d.class_rank || "—", "Class position", "of " + (d.class_size || "—") + " students")}
       ${statCard("amber", "i-exam", d.agg.subjects, "Subjects", "graded")}
     </div>
@@ -2954,13 +3001,11 @@ async function view_gresults(el, params) {
         ${d.per_subject.map((p, i) => `
           <tr><td>${i + 1}</td><td><b>${esc(p.name)}</b></td>
           <td class="num">${fmtNum(p.score)}</td>
-          <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade, d.scale)}" title="${esc(d.scale === "cbc" ? (CBC_LEVELS[p.grade] || {}).name || "" : p.grade)}">${esc(p.grade)}</span></td>
+          <td style="text-align:center"><span class="grade-pill ${gradeClass(p.grade)}" title="${esc((CBC_LEVELS[p.grade] || {}).name || "")}">${esc(p.grade)}</span></td>
           <td class="num">${p.points}</td>
           <td class="num">${fmtNum(p.subject_mean)}</td></tr>`).join("")}
       </tbody></table></div>
-    <p style="font-size:12px;color:var(--muted);margin-top:10px">${d.scale === "cbc"
-      ? "CBC Achievement Levels: E = Exceeding (80%+) · M = Meeting (65%+) · A = Approaching (50%+) · B = Below (under 50%)"
-      : "KCSE 12-point: " + KCSE_BANDS_LABEL}</p>`;
+    <p style="font-size:12px;color:var(--muted);margin-top:10px">${CBC_LABEL}</p>`;
   } else {
     $("#g-res-body").innerHTML = emptyState("No results for this exam", "Results appear once the school publishes the exam.");
   }

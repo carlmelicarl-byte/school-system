@@ -4,9 +4,8 @@
 Uses the current Kenyan Competency-Based Curriculum (CBC):
   - Lower Primary (Grade 1-3), Upper Primary (Grade 4-6),
     Junior Secondary (Grade 7-9), Senior Secondary (Grade 10-12)
-  - CBC 4-level achievement grading for Grades 1-9
-    (Exceeding / Meeting / Approaching / Below Expectations)
-  - KCSE 12-point scale (A-E) for Senior Secondary (Grade 10-12)
+  - CBC 4-level achievement grading in ALL grades
+    (Exceeding / Meeting / Approaching / Below Expectations — E, M, A, B)
 """
 import os
 import random
@@ -303,39 +302,21 @@ def subject_for_grade(subj, gnum):
     return gnum in grades_list(subj["grades"])
 
 # ------------------------------------------------------------------ grading scales
-# CBC achievement levels (Grades 1-9) — as used in primary & junior secondary
+# CBC achievement levels (E, M, A, B) — used in ALL grades
 CBC_BANDS = [
     (80, "E", "Exceeding Expectations", 4),
     (65, "M", "Meeting Expectations", 3),
     (50, "A", "Approaching Expectations", 2),
     (0,  "B", "Below Expectations", 1),
 ]
-# KCSE 12-point scale (Senior Secondary, Grade 10-12)
-KCSE_BANDS = [
-    (80, 12, "A"),  (75, 11, "A-"), (70, 10, "B+"), (65, 9, "B"), (60, 8, "B-"),
-    (55, 7, "C+"),  (50, 6, "C"),   (45, 5, "C-"),  (40, 4, "D+"), (35, 3, "D"),
-    (30, 2, "D-"),  (0, 1, "E"),
-]
 
-def scale_for_grade(grade_str):
-    try:
-        g = int(str(grade_str).split()[-1])
-    except Exception:
-        return "kcse"
-    return "cbc" if g <= 9 else "kcse"
-
-def grade_for(score, scale="kcse"):
+def grade_for(score, scale="cbc"):
     if score is None:
         return None, None
-    if scale == "cbc":
-        for lo, letter, _name, pts in CBC_BANDS:
-            if score >= lo:
-                return letter, pts
-        return "B", 1
-    for lo, pts, letter in KCSE_BANDS:
+    for lo, letter, _name, pts in CBC_BANDS:
         if score >= lo:
             return letter, pts
-    return "E", 1
+    return "B", 1
 
 # ------------------------------------------------------------------ name banks
 MALE = ["Brian","Kevin","Dennis","Collins","Moses","David","Samuel","Peter","James","John","Daniel",
@@ -499,7 +480,7 @@ def seed():
         term_progress = [0.9, 1.0, 1.1][ei]
         for st in student_ids:
             gnum = gnum_of_student[st]
-            scale = "cbc" if gnum <= 9 else "kcse"
+            scale = "cbc"
             for subj in subj_rows:
                 if not subject_for_grade(subj, gnum):
                     continue

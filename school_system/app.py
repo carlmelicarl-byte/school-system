@@ -114,19 +114,15 @@ guardian_required = role_required("guardian")
 library_required = role_required("admin", "librarian")
 
 # ------------------------------------------------------------------ grading
-# Kenyan CBC (Competency-Based Curriculum) grading — current system
-#   Grades 1-9 (primary & junior secondary): CBC achievement levels
-#   Grades 10-12 (senior secondary): KCSE 12-point scale (A-E)
+# Kenyan CBC (Competency-Based Curriculum) achievement levels — used for ALL
+# grades (primary, junior secondary and senior secondary):
+#   E = Exceeding Expectations (80%+), M = Meeting (65%+),
+#   A = Approaching (50%+), B = Below Expectations (<50%)
 CBC_BANDS = [
     (80, "E", "Exceeding Expectations", 4),
     (65, "M", "Meeting Expectations", 3),
     (50, "A", "Approaching Expectations", 2),
     (0,  "B", "Below Expectations", 1),
-]
-KCSE_BANDS = [
-    (80, 12, "A"),  (75, 11, "A-"), (70, 10, "B+"), (65, 9, "B"), (60, 8, "B-"),
-    (55, 7, "C+"),  (50, 6, "C"),   (45, 5, "C-"),  (40, 4, "D+"), (35, 3, "D"),
-    (30, 2, "D-"),  (0, 1, "E"),
 ]
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
@@ -142,45 +138,30 @@ PERIODS = [
 ]
 
 def scale_for_grade(grade_str):
-    """cbc for Grade 1-9 (primary & JSS), kcse for Grade 10-12 (senior)."""
-    try:
-        g = int(str(grade_str).split()[-1])
-    except Exception:
-        return "kcse"
-    return "cbc" if g <= 9 else "kcse"
+    """The whole school uses CBC achievement levels (E/M/A/B) in every grade."""
+    return "cbc"
 
-def grade_for(score, scale="kcse"):
+def grade_for(score, scale="cbc"):
     if score is None:
         return None, None
-    if scale == "cbc":
-        for lo, letter, _name, pts in CBC_BANDS:
-            if score >= lo:
-                return letter, pts
-        return "B", 1
-    for lo, pts, letter in KCSE_BANDS:
+    for lo, letter, _name, pts in CBC_BANDS:
         if score >= lo:
             return letter, pts
-    return "E", 1
+    return "B", 1
 
-def level_name(letter, scale="kcse"):
-    if scale == "cbc":
-        for _lo, l, name, _pts in CBC_BANDS:
-            if l == letter:
-                return name
+def level_name(letter, scale="cbc"):
+    for _lo, l, name, _pts in CBC_BANDS:
+        if l == letter:
+            return name
     return letter
 
-def mean_grade_from_points(avg_pts, scale="kcse"):
+def mean_grade_from_points(avg_pts, scale="cbc"):
     if avg_pts is None:
         return "-"
-    if scale == "cbc":
-        if avg_pts >= 3.5: return "E"
-        if avg_pts >= 2.5: return "M"
-        if avg_pts >= 1.5: return "A"
-        return "B"
-    for lo, pts, letter in KCSE_BANDS:
-        if avg_pts >= pts - 0.49:
-            return letter
-    return "E"
+    if avg_pts >= 3.5: return "E"
+    if avg_pts >= 2.5: return "M"
+    if avg_pts >= 1.5: return "A"
+    return "B"
 
 def subjects_for_grade(gnum):
     """Subjects taught in a given grade (CBC curriculum)."""
@@ -933,7 +914,7 @@ def save_marks(eid):
             continue
         sc = float(sc)
         sc = max(0, min(100, sc))
-        # determine scale from the student's class grade (CBC vs KCSE)
+        # all grades use CBC achievement levels
         clr = q1("""SELECT c.grade FROM enrollments e JOIN classes c ON c.id=e.class_id
                     WHERE e.student_id=? AND e.term=(SELECT term FROM exams WHERE id=?)
                     AND e.academic_year=(SELECT academic_year FROM exams WHERE id=?) LIMIT 1""",
@@ -1018,7 +999,7 @@ def analytics():
     grade_dist = {}
     for r in rows:
         grade_dist[r["mean_grade"]] = grade_dist.get(r["mean_grade"], 0) + 1
-    # order: CBC levels (E,M,A,B) then KCSE letters
+    # order: CBC levels (E,M,A,B)
     order = ["E", "M", "A", "B", "A-", "B+", "B-", "C+", "C", "C-", "D+", "D", "D-"]
     seen = set()
     ordered = []
@@ -1823,7 +1804,7 @@ def curriculum():
         {"key": "jss", "label": "Junior Secondary", "grades": "Grade 7 – 9",
          "scale": "CBC Achievement Levels", "gmin": 7, "gmax": 9},
         {"key": "senior", "label": "Senior Secondary", "grades": "Grade 10 – 12",
-         "scale": "KCSE 12-point (A–E)", "gmin": 10, "gmax": 12},
+         "scale": "CBC Achievement Levels", "gmin": 10, "gmax": 12},
     ]
     all_subj = q("SELECT * FROM subjects ORDER BY name")
     for b in bands:
