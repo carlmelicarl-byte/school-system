@@ -23,172 +23,10 @@ from flask import (Flask, g, jsonify, request, session, send_from_directory,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "school.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
-DATA_DIR = os.path.join(BASE_DIR, "data")
-META_DB = os.path.join(BASE_DIR, "meta.db")
-
-# ------------------------------------------------------------------ multi-school
-def open_meta():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    m = sqlite3.connect(META_DB)
-    m.row_factory = sqlite3.Row
-    m.execute("""CREATE TABLE IF NOT EXISTS schools (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        slug TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        db_path TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        active INTEGER DEFAULT 1)""")
-    m.execute("""CREATE TABLE IF NOT EXISTS superusers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        full_name TEXT,
-        active INTEGER DEFAULT 1)""")
-    return m
-
-def list_schools():
-    m = open_meta()
-    rows = m.execute("SELECT * FROM schools ORDER BY name").fetchall()
-    m.close()
-    return [dict(r) for r in rows]
-
-def school_by_slug(slug):
-    m = open_meta()
-    r = m.execute("SELECT * FROM schools WHERE slug=?", (slug,)).fetchone()
-    m.close()
-    return dict(r) if r else None
-
-def tenant_db_path(slug):
-    s = school_by_slug(slug)
-    if not s or not s.get("active"):
-        return None
-    p = s["db_path"]
-    if not os.path.isabs(p):
-        p = os.path.join(BASE_DIR, p)
-    return p if os.path.exists(p) else None
-
-def find_user_global(username):
-    """Look up a username across the super admin list and every school. Returns (user_row, school_slug or 'super')."""
-    m = open_meta()
-    su = m.execute("SELECT * FROM superusers WHERE username=? AND active=1", (username,)).fetchone()
-    m.close()
-    if su:
-        return dict(su), "super"
-    for sch in list_schools():
-        if not sch.get("active"):
-            continue
-        try:
-            c = sqlite3.connect(sch["db_path"])
-            c.row_factory = sqlite3.Row
-            u = c.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
-            c.close()
-        except Exception:
-            continue
-        if u:
-            return dict(u), sch["slug"]
-    return None, None
-
-def ensure_platform():
-    """On first run (e.g. fresh Render deploy) create the platform registry,
-    the super admin and a demo school so the app is never empty or broken.
-    Existing data is never touched — this only fills gaps."""
-    import hashlib as _hl
-    m = open_meta()
-    su = m.execute("SELECT id FROM superusers WHERE username='superadmin'").fetchone()
-    if not su:
-        salt = secrets.token_hex(16)
-        h = _hl.scrypt(b"admin123", salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
-        m.execute("INSERT INTO superusers(username,password_hash,full_name) VALUES(?,?,?)",
-                  ("superadmin", f"scrypt${salt}${h.hex()}", "Platform Administrator"))
-        m.commit()
-    demos = m.execute("SELECT slug, db_path FROM schools WHERE slug='greenfield'").fetchall()
-    m.close()
-    main_db = os.path.join(BASE_DIR, "school.db")
-    if not os.path.exists(main_db):
-        import seed as _seed
-        print("[init] Creating demo school database...")
-        _seed.seed_db(main_db, school_name="Greenfield Academy", sample=True,
-                      admin_user="admin", admin_pass="admin123")
-        _seed.register_school("greenfield", "Greenfield Academy", "school.db")
-    elif not demos:
-        import seed as _seed
-        _seed.register_school("greenfield", "Greenfield Academy", "school.db")
-
-def _host_slug():
-    """Subdomain-based school:  kisii-high.yourdomain.com -> 'kisii-high'."""
-    if getattr(g, "_host_slug", None) is not None:
-        return g._host_slug
-    host = (request.host or "").split(":")[0].lower()
-    parts = host.split(".")
-    slug = None
-    if len(parts) >= 2 and parts[0] not in ("localhost", "www", "127"):
-        cand = parts[0]
-        if school_by_slug(cand):
-            slug = cand
-    g._host_slug = slug
-    return slug
-
-def _current_slug():
-    hs = _host_slug()
-    if hs:
-        return hs
-    if session.get("school_slug"):
-        return session["school_slug"]
-    hdr = request.headers.get("Authorization", "")
-    if hdr.startswith("Bearer "):
-        entry = AUTH_TOKENS.get(hdr[7:].strip())
-        if entry and entry != "super":
-            return entry[1]
-    return None
 
 app = Flask(__name__)
-
-def _load_secret():
-    """Secret key from ELIMUPRO_SECRET env var, else a generated file, else in-memory."""
-    env = os.environ.get("ELIMUPRO_SECRET")
-    if env:
-        return env
-    keyfile = os.path.join(BASE_DIR, ".secret_key")
-    try:
-        with open(keyfile) as f:
-            k = f.read().strip()
-        if k:
-            return k
-    except Exception:
-        pass
-    k = secrets.token_hex(32)
-    try:
-        with open(keyfile, "w") as f:
-            f.write(k)
-    except Exception:
-        pass
-    return k
-
-app.secret_key = _load_secret()
+app.secret_key = "elimupro-secret-key-change-in-production"
 app.config["JSON_SORT_KEYS"] = False
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-# set Secure cookie when deployed behind HTTPS (ELIMUPRO_HTTPS=1)
-if os.environ.get("ELIMUPRO_HTTPS") == "1":
-    app.config["SESSION_COOKIE_SECURE"] = True
-
-# ---- login rate limiting (in-memory): 5 failures per user/IP per 15 min ----
-from collections import defaultdict
-import time as _time
-FAIL_LIMIT = 5
-FAIL_WINDOW = 900   # 15 minutes
-_fails = defaultdict(list)
-
-def _check_rate(uid):
-    now = _time.time()
-    _fails[uid] = [t for t in _fails[uid] if now - t < FAIL_WINDOW]
-    if len(_fails[uid]) >= FAIL_LIMIT:
-        wait = int(FAIL_WINDOW - (now - _fails[uid][0]))
-        return f"Too many failed attempts. Try again in {max(1, wait // 60)} minute(s)."
-    return None
-
-def _record_fail(uid):
-    _fails[uid].append(_time.time())
 
 # In-memory bearer tokens: login returns a token that works even in sandboxed
 # preview iframes where cookies are blocked. Token -> user id.
@@ -197,9 +35,7 @@ AUTH_TOKENS = {}
 # ------------------------------------------------------------------ helpers
 def db():
     if "db" not in g:
-        slug = _current_slug()
-        path = tenant_db_path(slug) if slug else DB_PATH
-        g.db = sqlite3.connect(path)
+        g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
@@ -224,26 +60,8 @@ def exe(sql, args=()):
 def rows_to_dicts(rows):
     return [dict(r) for r in rows]
 
-def phash(p, salt=None):
-    """scrypt password hash, stored as scrypt$<salt>$<hash>."""
-    if salt is None:
-        salt = secrets.token_hex(16)
-    h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
-    return f"scrypt${salt}${h.hex()}"
-
-def verify_password(stored, p):
-    """Verify a password against a stored hash (scrypt, with legacy SHA-256 support)."""
-    if not stored:
-        return False
-    if stored.startswith("scrypt$"):
-        try:
-            _, salt, hexhash = stored.split("$")
-            h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
-            return secrets.compare_digest(h.hex(), hexhash)
-        except Exception:
-            return False
-    # legacy SHA-256 hash from older versions
-    return secrets.compare_digest(hashlib.sha256(p.encode()).hexdigest(), stored)
+def phash(p):
+    return hashlib.sha256(p.encode()).hexdigest()
 
 def fmt_amount(n):
     s = settings_map()
@@ -251,20 +69,14 @@ def fmt_amount(n):
     return f"{cur} {float(n or 0):,.0f}"
 
 def auth_user():
-    """Current user row from cookie session or Bearer token (superadmin has no tenant)."""
-    def super_row(uid, uname, full):
-        return {"id": uid, "username": uname, "full_name": full, "role": "superadmin", "is_super": True}
+    """Current user row from cookie session or Bearer token."""
     if session.get("user_id"):
-        if session.get("is_super"):
-            return super_row(session["user_id"], session.get("username"), session.get("name"))
         return q1("SELECT * FROM users WHERE id=?", (session["user_id"],))
     hdr = request.headers.get("Authorization", "")
     if hdr.startswith("Bearer "):
-        entry = AUTH_TOKENS.get(hdr[7:].strip())
-        if entry == "super":
-            return super_row(0, "superadmin", "Platform Administrator")
-        if entry:
-            return q1("SELECT * FROM users WHERE id=?", (entry[0],))
+        uid = AUTH_TOKENS.get(hdr[7:].strip())
+        if uid:
+            return q1("SELECT * FROM users WHERE id=?", (uid,))
     return None
 
 def acting_name():
@@ -314,17 +126,6 @@ finance_required = role_required("admin", "accounts")
 academic_required = role_required("admin", "teacher")
 guardian_required = role_required("guardian")
 library_required = role_required("admin", "librarian")
-
-def super_required(fn):
-    @functools.wraps(fn)
-    def wrap(*a, **kw):
-        u = auth_user()
-        if not u:
-            return jsonify({"error": "Unauthorized"}), 401
-        if u["role"] != "superadmin":
-            return jsonify({"error": "Platform admin only"}), 403
-        return fn(*a, **kw)
-    return wrap
 
 # ------------------------------------------------------------------ grading
 # Kenyan CBC (Competency-Based Curriculum) achievement levels — used for ALL
@@ -493,15 +294,6 @@ def service_worker():
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 
-@app.after_request
-def security_headers(resp):
-    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-    resp.headers.setdefault("Referrer-Policy", "same-origin")
-    resp.headers.setdefault("X-XSS-Protection", "0")
-    if os.environ.get("ELIMUPRO_HTTPS") == "1":
-        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    return resp
-
 @app.errorhandler(404)
 def not_found(e):
     if request.path.startswith("/api/"):
@@ -512,55 +304,17 @@ def not_found(e):
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json(force=True) or {}
-    uname = data.get("username", "").strip()
-    ip = request.remote_addr or "?"
-    key = f"{uname}|{ip}"
-    blocked = _check_rate(key)
-    if blocked:
-        return jsonify({"error": blocked}), 429
-    host_slug = _host_slug()
-    if host_slug:
-        # visiting <school>.domain.com -> only that school's users are considered
-        sch = school_by_slug(host_slug)
-        u = None
-        if sch and sch.get("active"):
-            try:
-                c = sqlite3.connect(sch["db_path"])
-                c.row_factory = sqlite3.Row
-                u = c.execute("SELECT * FROM users WHERE username=? AND active=1", (uname,)).fetchone()
-                c.close()
-            except Exception:
-                u = None
-        slug = host_slug if u else None
-    else:
-        u, slug = find_user_global(uname)
-    if not u or not verify_password(u["password_hash"], data.get("password", "")):
-        _record_fail(key)
+    u = q1("SELECT * FROM users WHERE username=? AND active=1", (data.get("username", "").strip(),))
+    if not u or u["password_hash"] != phash(data.get("password", "")):
         return jsonify({"error": "Wrong password or username. Please check your details and try again."}), 401
-    _fails.pop(key, None)
-    token = secrets.token_hex(16)
-    if slug == "super":
-        session["user_id"] = 0
-        session["is_super"] = True
-        session["username"] = u["username"]
-        session["name"] = u["full_name"]
-        session.pop("school_slug", None)
-        AUTH_TOKENS[token] = "super"
-        return jsonify({"id": 0, "username": u["username"], "full_name": u["full_name"],
-                        "role": "superadmin", "token": token})
-    # school user: upgrade legacy hashes + bind token/session to the school
-    if u["password_hash"] and not u["password_hash"].startswith("scrypt$"):
-        c = sqlite3.connect(tenant_db_path(slug))
-        c.execute("UPDATE users SET password_hash=? WHERE id=?", (phash(data.get("password", "")), u["id"]))
-        c.commit(); c.close()
     session["user_id"] = u["id"]
     session["role"] = u["role"]
     session["name"] = u["full_name"]
-    session["school_slug"] = slug
-    AUTH_TOKENS[token] = (u["id"], slug)
+    token = secrets.token_hex(16)
+    AUTH_TOKENS[token] = u["id"]
     return jsonify({"id": u["id"], "username": u["username"], "full_name": u["full_name"],
                     "role": u["role"], "teacher_id": u["teacher_id"],
-                    "profile_pic": u["profile_pic"], "token": token, "school_slug": slug})
+                    "profile_pic": u["profile_pic"], "token": token})
 
 @app.route("/api/logout", methods=["POST"])
 def logout():
@@ -576,8 +330,7 @@ def me():
     u = auth_user()
     return jsonify({"id": u["id"], "name": u["full_name"], "role": u["role"],
                     "username": u["username"], "profile_pic": u["profile_pic"],
-                    "teacher_id": (u["teacher_id"] if "teacher_id" in u else None),
-                    "school_slug": _current_slug()})
+                    "teacher_id": u["teacher_id"]})
 
 # ------------------------------------------------------------------ users
 @app.route("/api/users")
@@ -684,13 +437,11 @@ def upload_pic(kind, rid):
         return jsonify({"error": "Invalid image data"}), 400
     if len(raw) > 4 * 1024 * 1024:
         return jsonify({"error": "Image too large (max 4MB)"}), 400
-    subdir = _current_slug() or "default"
-    target = os.path.join(UPLOAD_DIR, subdir)
-    os.makedirs(target, exist_ok=True)
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     fname = f"{kind}_{rid}_{secrets.token_hex(4)}.{ext}"
-    with open(os.path.join(target, fname), "wb") as f:
+    with open(os.path.join(UPLOAD_DIR, fname), "wb") as f:
         f.write(raw)
-    path = f"/static/uploads/{subdir}/{fname}"
+    path = f"/static/uploads/{fname}"
     if kind == "user":
         exe("UPDATE users SET profile_pic=? WHERE id=?", (path, rid))
     elif kind == "student":
@@ -2554,63 +2305,6 @@ def library_summary():
     return jsonify({"total_titles": total, "total_copies": copies, "available": available,
                     "issued": issued, "overdue": overdue})
 
-# ------------------------------------------------------------------ multi-school management (super admin)
-@app.route("/api/schools")
-@super_required
-def schools_list():
-    out = []
-    for sch in list_schools():
-        try:
-            c = sqlite3.connect(sch["db_path"])
-            c.row_factory = sqlite3.Row
-            students = c.execute("SELECT COUNT(*) c FROM students WHERE status='Active'").fetchone()["c"]
-            teachers = c.execute("SELECT COUNT(*) c FROM teachers WHERE active=1").fetchone()["c"]
-            c.close()
-        except Exception:
-            students = teachers = 0
-        out.append({**sch, "students": students, "teachers": teachers})
-    return jsonify(out)
-
-@app.route("/api/schools", methods=["POST"])
-@super_required
-def schools_create():
-    d = request.get_json(force=True) or {}
-    name = (d.get("name") or "").strip()
-    slug = (d.get("slug") or "").strip().lower()
-    import re as _re
-    if not name:
-        return jsonify({"error": "School name required"}), 400
-    if not _re.match(r"^[a-z0-9][a-z0-9-]{2,30}$", slug):
-        return jsonify({"error": "Slug must be 3-31 chars: lowercase letters, numbers, hyphens"}), 400
-    if school_by_slug(slug):
-        return jsonify({"error": "A school with this slug already exists"}), 400
-    sample = bool(d.get("sample"))
-    path = os.path.join(DATA_DIR, f"school_{slug}.db")
-    admin_user = (d.get("admin_user") or "admin").strip()
-    admin_pass = d.get("admin_pass") or "admin123"
-    try:
-        import seed as _seed
-        _seed.seed_db(path, school_name=name, sample=sample,
-                      admin_user=admin_user, admin_pass=admin_pass)
-    except Exception as e:
-        return jsonify({"error": f"Could not create school: {e}"}), 500
-    import seed as _seed2
-    _seed2.register_school(slug, name, os.path.relpath(path, BASE_DIR))
-    log_activity("School created", f"{name} ({slug})")
-    return jsonify({"ok": True, "slug": slug, "name": name, "sample": sample})
-
-@app.route("/api/schools/<int:sid>", methods=["PUT"])
-@super_required
-def schools_update(sid):
-    d = request.get_json(force=True) or {}
-    m = open_meta()
-    if "active" in d:
-        m.execute("UPDATE schools SET active=? WHERE id=?", (1 if d["active"] else 0, sid))
-    if "name" in d and d["name"]:
-        m.execute("UPDATE schools SET name=? WHERE id=?", (d["name"].strip(), sid))
-    m.commit(); m.close()
-    return jsonify({"ok": True})
-
 # ------------------------------------------------------------------ settings
 @app.route("/api/settings", methods=["GET", "PUT"])
 @any_required
@@ -2627,10 +2321,8 @@ def settings_endpoint():
     cur.commit()
     return jsonify({"ok": True})
 
-def boot():
-    ensure_platform()
-
 if __name__ == "__main__":
-    boot()
+    if not os.path.exists(DB_PATH):
+        print("Database not found — run seed.py first")
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=False)

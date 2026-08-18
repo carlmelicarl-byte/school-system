@@ -11,7 +11,6 @@ import os
 import random
 import sqlite3
 import hashlib
-import secrets
 import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -391,17 +390,10 @@ def school_days(count, start=datetime.date(2026, 8, 1)):
         d += datetime.timedelta(days=1)
     return days
 
-def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
-            admin_user="admin", admin_pass="admin123"):
-    """Seed a school database at db_path (defaults to DB_PATH).
-
-    sample=True  -> full demo data (students, scores, payments...)
-    sample=False -> fresh empty school: schema, subjects, classes, admin login only
-    """
-    db_path = db_path or DB_PATH
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    conn = sqlite3.connect(db_path)
+def seed():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.executescript(SCHEMA)
@@ -431,17 +423,16 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
         cur.execute("UPDATE subjects SET teacher_id=? WHERE id=?", (tid, subj_rows[teach_subj_idx[i]]["id"]))
 
     # classes --------------------------------------------------------------
-    _sz = [8, 8, 12, 11, 12, 11, 12, 11, 10] if sample else [0] * 9
     class_defs = [
-        ("Grade 1 East", "Grade 1", "East", teacher_ids[0], _sz[0]),
-        ("Grade 1 West", "Grade 1", "West", teacher_ids[1], _sz[1]),
-        ("Grade 7 East", "Grade 7", "East", teacher_ids[2], _sz[2]),
-        ("Grade 7 West", "Grade 7", "West", teacher_ids[3], _sz[3]),
-        ("Grade 8 East", "Grade 8", "East", teacher_ids[4], _sz[4]),
-        ("Grade 8 West", "Grade 8", "West", teacher_ids[5], _sz[5]),
-        ("Grade 9 East", "Grade 9", "East", teacher_ids[6], _sz[6]),
-        ("Grade 9 West", "Grade 9", "West", teacher_ids[7], _sz[7]),
-        ("Grade 10 East", "Grade 10", "East", teacher_ids[8], _sz[8]),
+        ("Grade 1 East", "Grade 1", "East", teacher_ids[0], 8),
+        ("Grade 1 West", "Grade 1", "West", teacher_ids[1], 8),
+        ("Grade 7 East", "Grade 7", "East", teacher_ids[2], 12),
+        ("Grade 7 West", "Grade 7", "West", teacher_ids[3], 11),
+        ("Grade 8 East", "Grade 8", "East", teacher_ids[4], 12),
+        ("Grade 8 West", "Grade 8", "West", teacher_ids[5], 11),
+        ("Grade 9 East", "Grade 9", "East", teacher_ids[6], 12),
+        ("Grade 9 West", "Grade 9", "West", teacher_ids[7], 11),
+        ("Grade 10 East", "Grade 10", "East", teacher_ids[8], 10),
     ]
     cur.executemany("""INSERT INTO classes(name,grade,stream,academic_year,capacity,class_teacher_id)
                        VALUES(?,?,?,?,?,?)""",
@@ -792,7 +783,7 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
 
     # settings --------------------------------------------------------------
     settings = {
-        "school_name": school_name,
+        "school_name": "Greenfield Academy",
         "school_motto": "Strive for Excellence",
         "school_address": "P.O. Box 1020, Kisii",
         "school_phone": "+254 712 345 678",
@@ -812,11 +803,9 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
 
     # users -----------------------------------------------------------------
     def phash(p):
-        salt = secrets.token_hex(16)
-        h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
-        return f"scrypt${salt}${h.hex()}"
+        return hashlib.sha256(p.encode()).hexdigest()
     users = [
-        (admin_user, phash(admin_pass), "School Administrator", "admin", None),
+        ("admin", phash("admin123"), "School Administrator", "admin", None),
         ("teacher", phash("teacher123"), "Madam Jane Atieno", "teacher", teacher_ids[0]),
         ("jmwangi", phash("teacher123"), "Mr Peter Mwangi", "teacher", teacher_ids[1]),
         ("accounts", phash("accounts123"), "Finance Officer", "accounts", None),
@@ -865,45 +854,6 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
           f"{len(tt_rows)} timetable slots, {len(parent_users)} guardian accounts, "
           f"{len(book_ids)} books, {len(issue_rows)} library records, "
           f"{len(conduct_rows)} conduct records, {len(events)} events.")
-
-def seed():
-    """Default: seed the main school (school.db) and register it in meta.db."""
-    seed_db(DB_PATH, school_name="Greenfield Academy", sample=True)
-    register_school("greenfield", "Greenfield Academy", DB_PATH)
-
-def register_school(slug, name, db_path, active=1):
-    """Register (or update) a school in the platform meta database (relative path)."""
-    import os as _os
-    import hashlib as _hl
-    meta_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "meta.db")
-    if _os.path.isabs(db_path):
-        db_path = _os.path.relpath(db_path, _os.path.dirname(_os.path.abspath(__file__)))
-    meta = sqlite3.connect(meta_path)
-    meta.execute("""CREATE TABLE IF NOT EXISTS schools (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        slug TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        db_path TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        active INTEGER DEFAULT 1)""")
-    meta.execute("""CREATE TABLE IF NOT EXISTS superusers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        full_name TEXT,
-        active INTEGER DEFAULT 1)""")
-    meta.execute("""INSERT INTO schools(slug,name,db_path,active) VALUES(?,?,?,?)
-                    ON CONFLICT(slug) DO UPDATE SET name=excluded.name, db_path=excluded.db_path""",
-                 (slug, name, db_path, active))
-    # platform super admin (manage schools) — only if missing
-    su = meta.execute("SELECT id FROM superusers WHERE username='superadmin'").fetchone()
-    if not su:
-        salt = _os.urandom(16).hex()
-        h = _hl.scrypt(b"admin123", salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
-        meta.execute("INSERT INTO superusers(username,password_hash,full_name) VALUES(?,?,?)",
-                     ("superadmin", f"scrypt${salt}${h.hex()}", "Platform Administrator"))
-    meta.commit()
-    meta.close()
 
 if __name__ == "__main__":
     seed()

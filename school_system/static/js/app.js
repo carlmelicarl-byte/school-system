@@ -303,7 +303,6 @@ const NAV = [
     { v: "idcards", label: "ID Cards", icon: "i-card", roles: ["admin", "teacher"] },
   ]},
   { group: "System", items: [{ v: "settings", label: "Settings", icon: "i-gear", roles: ["admin"] }] },
-  { group: "Platform", items: [{ v: "schools", label: "Schools", icon: "i-class", roles: ["superadmin"] }] },
   { group: "Parent Portal", items: [
     { v: "gdash", label: "My Dashboard", icon: "i-grid", roles: ["guardian"] },
     { v: "gresults", label: "Results", icon: "i-chart", roles: ["guardian"] },
@@ -340,7 +339,7 @@ function enterApp() {
   $("#login-screen").classList.add("hidden");
   $("#app").classList.remove("hidden");
   $("#user-name").textContent = state.user.name;
-  $("#user-role").textContent = { admin: "Administrator", teacher: "Teacher", accounts: "Accounts", guardian: "Parent", librarian: "Librarian", superadmin: "Platform Admin" }[state.user.role] || state.user.role;
+  $("#user-role").textContent = { admin: "Administrator", teacher: "Teacher", accounts: "Accounts", guardian: "Parent", librarian: "Librarian" }[state.user.role] || state.user.role;
   $("#user-avatar").innerHTML = state.user.profile_pic
     ? `<img src="${esc(state.user.profile_pic)}" alt="">`
     : esc(initials(state.user.name));
@@ -351,7 +350,7 @@ function enterApp() {
   document.title = state.settings.school_name + " — ElimuPro";
   applyAppearance();
   renderNav();
-  openView(state.user.role === "guardian" ? "gdash" : state.user.role === "superadmin" ? "schools" : "dashboard");
+  openView(state.user.role === "guardian" ? "gdash" : "dashboard");
 }
 async function doLogin(username, password) {
   $("#login-error").textContent = "";
@@ -419,7 +418,6 @@ const VIEWS = {
   discipline:   { title: "Discipline & Conduct", sub: "Merits, demerits & behaviour", fn: view_discipline },
   gevents:      { title: "School Events",     sub: "What's happening at school",    fn: view_gevents },
   idcards:      { title: "ID Cards",          sub: "Student identification cards", fn: view_idcards },
-  schools:      { title: "Schools",           sub: "Manage schools on this platform", fn: view_schools },
   settings:     { title: "Settings",         sub: "School configuration & users",  fn: view_settings },
   gdash:        { title: "My Dashboard",     sub: "Your children at a glance",     fn: view_gdash },
   gresults:     { title: "Results",          sub: "Exam results & performance",    fn: view_gresults },
@@ -3549,88 +3547,6 @@ function printIdCards() {
   setTimeout(() => { window.focus(); window.print(); }, 150);
   window.addEventListener("afterprint", clear, { once: true });
   setTimeout(clear, 30000);
-}
-
-/* ============================================================
-   SCHOOLS — platform admin (superadmin): list & create schools
-   Each school is fully isolated: own database, branding, logins.
-   ============================================================ */
-async function view_schools(el) {
-  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading schools…</p></div>`;
-  const schools = await api("/api/schools");
-  el.innerHTML = `
-  <div class="welcome-banner">
-    <div>
-      <h2>Platform — ${esc(schools.length)} school${schools.length === 1 ? "" : "s"}</h2>
-      <p>Each school is fully isolated: its own database, branding, logins and data. Add a new school to sell to another client.</p>
-    </div>
-    <button class="btn btn-primary" onclick="schoolForm()" style="background:#fff;color:var(--green-dark)"><svg><use href="#i-plus"/></svg> Add School</button>
-  </div>
-  <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>School</th><th>Slug</th><th class="num">Students</th><th class="num">Teachers</th><th>Created</th><th>Status</th><th class="num">Actions</th></tr></thead>
-    <tbody>
-      ${schools.map(s => `
-        <tr>
-          <td><b>${esc(s.name)}</b></td>
-          <td><code>${esc(s.slug)}</code></td>
-          <td class="num">${s.students}</td>
-          <td class="num">${s.teachers}</td>
-          <td>${fmtDate(s.created_at)}</td>
-          <td><span class="badge ${s.active ? "b-green" : "b-red"}">${s.active ? "Active" : "Disabled"}</span></td>
-          <td><div class="actions">
-            <button class="ic-btn" title="${s.active ? "Disable" : "Enable"}" onclick="toggleSchool(${s.id},${s.active ? 0 : 1})"><svg><use href="#i-close"/></svg></button>
-          </div></td>
-        </tr>`).join("")}
-    </tbody></table></div>
-  <div class="card" style="margin-top:16px">
-    <div class="card-head"><h3>How selling works</h3></div>
-    <p style="font-size:13px;color:var(--slate)">Create a school here → it gets its own database with its own <b>admin</b> login.
-      Share the platform URL with the school; their admin sets up branding (Settings → School), imports students and goes live.
-      Every school's data is stored separately, so one school can never see another's records — and backups cover each one.</p>
-  </div>`;
-}
-
-async function schoolForm() {
-  modal(`
-  <div class="modal-head"><h3>Add School</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
-  <div class="modal-body"><div class="form-grid">
-    <div class="full"><label>School name *</label><input id="sc-name" class="input" placeholder="e.g. Kisii High School"></div>
-    <div class="full"><label>Slug * <small style="font-weight:500;color:var(--muted)">lowercase letters/numbers/hyphens, used to identify this school</small></label>
-      <input id="sc-slug" class="input" placeholder="e.g. kisii-high"></div>
-    <div class="full">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="sc-sample" style="accent-color:var(--green);width:16px;height:16px" checked>
-        <span><b>Load sample data</b><br><small style="font-weight:400;color:var(--muted)">Untick for a fresh empty school (just subjects, classes &amp; admin login)</small></span>
-      </label>
-    </div>
-    <div><label>Admin username</label><input id="sc-admin" class="input" value="admin"></div>
-    <div><label>Admin password</label><input id="sc-pass" class="input" value="admin123"></div>
-    <p class="full" style="font-size:12px;color:var(--muted)">Creating a school takes a few seconds (sample data takes longer than empty). The school's admin logs in with the credentials above at the same platform URL.</p>
-  </div></div>
-  <div class="modal-foot">
-    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-primary" id="sc-save"><svg><use href="#i-plus"/></svg> Create School</button>
-  </div>`);
-  $("#sc-save").addEventListener("click", async () => {
-    const btn = $("#sc-save");
-    btn.disabled = true; btn.textContent = "Creating school…";
-    try {
-      await api("/api/schools", { method: "POST", body: {
-        name: $("#sc-name").value.trim(), slug: $("#sc-slug").value.trim(),
-        sample: $("#sc-sample").checked, admin_user: $("#sc-admin").value.trim(),
-        admin_pass: $("#sc-pass").value.trim() } });
-      toast("School created — its admin can log in now");
-      closeModal(); openView("schools");
-    } catch (err) { toast(err.message, "err"); btn.disabled = false; btn.textContent = "Create School"; }
-  });
-}
-
-async function toggleSchool(id, active) {
-  try {
-    await api("/api/schools/" + id, { method: "PUT", body: { active } });
-    toast(active ? "School enabled" : "School disabled (its logins are blocked)");
-    openView("schools");
-  } catch (err) { toast(err.message, "err"); }
 }
 
 /* ============================================================
