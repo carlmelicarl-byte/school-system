@@ -418,6 +418,7 @@ const VIEWS = {
   discipline:   { title: "Discipline & Conduct", sub: "Merits, demerits & behaviour", fn: view_discipline },
   gevents:      { title: "School Events",     sub: "What's happening at school",    fn: view_gevents },
   idcards:      { title: "ID Cards",          sub: "Student identification cards", fn: view_idcards },
+
   settings:     { title: "Settings",         sub: "School configuration & users",  fn: view_settings },
   gdash:        { title: "My Dashboard",     sub: "Your children at a glance",     fn: view_gdash },
   gresults:     { title: "Results",          sub: "Exam results & performance",    fn: view_gresults },

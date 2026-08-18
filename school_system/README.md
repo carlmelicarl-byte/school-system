@@ -193,5 +193,19 @@ school_system/
 - Multi-school tenancy (`school_id`) for a Zeraki-style SaaS deployment
 - Parent mobile portal
 
+## 🚀 Selling & deploying it (production pack)
+
+The project now ships with a full **production & security pack** so you can take it to a real school:
+
+- **Two deployment paths** — see **[DEPLOY.md](DEPLOY.md)**: cloud (gunicorn + nginx + HTTPS + certbot + systemd) or **on-premises** (school's own PC via `start-prod.bat` / `run_production.py` with Waitress)
+- **Production webservers** — `run_production.py` (Waitress, cross-platform) and `wsgi.py` (gunicorn on Linux) replace the dev server
+- **Security hardened** — salted **scrypt** password hashing (legacy SHA-256 auto-upgraded on login), **login rate-limiting** (5 fails / 15 min → 429), secret key from `ELIMUPRO_SECRET` env or generated file, HttpOnly/SameSite cookies, HTTPS cookie + HSTS flags, security headers
+- **Automated backups** — `backup.py` (online-consistent SQLite backup, keeps 30 days) + systemd timer for cloud, Task Scheduler steps for on-premises
+
+- **Windows on-prem launcher** — `start-prod.bat` installs deps, seeds, and serves in production mode
+
+Typical Kenyan market pricing for context: cloud subscriptions ~KES 50k–120k/yr (small schools) to 250k–400k+ (large), or term-based ~KES 30k–50k, plus a one-time setup fee.
+
 ## 🔐 Security notes
+
 Demo secret key and SHA-256 password hashes suit a local deployment. For production: rotate the secret key via environment variable, use HTTPS, and consider bcrypt/argon2 hashing.

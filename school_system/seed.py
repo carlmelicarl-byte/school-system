@@ -11,6 +11,7 @@ import os
 import random
 import sqlite3
 import hashlib
+import secrets
 import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -803,7 +804,9 @@ def seed():
 
     # users -----------------------------------------------------------------
     def phash(p):
-        return hashlib.sha256(p.encode()).hexdigest()
+        salt = secrets.token_hex(16)
+        h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
+        return f"scrypt${salt}${h.hex()}"
     users = [
         ("admin", phash("admin123"), "School Administrator", "admin", None),
         ("teacher", phash("teacher123"), "Madam Jane Atieno", "teacher", teacher_ids[0]),

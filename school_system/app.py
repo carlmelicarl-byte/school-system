@@ -23,10 +23,54 @@ from flask import (Flask, g, jsonify, request, session, send_from_directory,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "school.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
-
 app = Flask(__name__)
-app.secret_key = "elimupro-secret-key-change-in-production"
+
+def _load_secret():
+    """Secret key from ELIMUPRO_SECRET env var, else a generated file, else in-memory."""
+    env = os.environ.get("ELIMUPRO_SECRET")
+    if env:
+        return env
+    keyfile = os.path.join(BASE_DIR, ".secret_key")
+    try:
+        with open(keyfile) as f:
+            k = f.read().strip()
+        if k:
+            return k
+    except Exception:
+        pass
+    k = secrets.token_hex(32)
+    try:
+        with open(keyfile, "w") as f:
+            f.write(k)
+    except Exception:
+        pass
+    return k
+
+app.secret_key = _load_secret()
 app.config["JSON_SORT_KEYS"] = False
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# set Secure cookie when deployed behind HTTPS (ELIMUPRO_HTTPS=1)
+if os.environ.get("ELIMUPRO_HTTPS") == "1":
+    app.config["SESSION_COOKIE_SECURE"] = True
+
+# ---- login rate limiting (in-memory): 5 failures per user/IP per 15 min ----
+from collections import defaultdict
+import time as _time
+FAIL_LIMIT = 5
+FAIL_WINDOW = 900   # 15 minutes
+_fails = defaultdict(list)
+
+def _check_rate(uid):
+    now = _time.time()
+    _fails[uid] = [t for t in _fails[uid] if now - t < FAIL_WINDOW]
+    if len(_fails[uid]) >= FAIL_LIMIT:
+        wait = int(FAIL_WINDOW - (now - _fails[uid][0]))
+        return f"Too many failed attempts. Try again in {max(1, wait // 60)} minute(s)."
+    return None
+
+def _record_fail(uid):
+    _fails[uid].append(_time.time())
 
 # In-memory bearer tokens: login returns a token that works even in sandboxed
 # preview iframes where cookies are blocked. Token -> user id.
@@ -60,8 +104,26 @@ def exe(sql, args=()):
 def rows_to_dicts(rows):
     return [dict(r) for r in rows]
 
-def phash(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+def phash(p, salt=None):
+    """scrypt password hash, stored as scrypt$<salt>$<hash>."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
+    return f"scrypt${salt}${h.hex()}"
+
+def verify_password(stored, p):
+    """Verify a password against a stored hash (scrypt, with legacy SHA-256 support)."""
+    if not stored:
+        return False
+    if stored.startswith("scrypt$"):
+        try:
+            _, salt, hexhash = stored.split("$")
+            h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
+            return secrets.compare_digest(h.hex(), hexhash)
+        except Exception:
+            return False
+    # legacy SHA-256 hash from older versions
+    return secrets.compare_digest(hashlib.sha256(p.encode()).hexdigest(), stored)
 
 def fmt_amount(n):
     s = settings_map()
@@ -126,6 +188,7 @@ finance_required = role_required("admin", "accounts")
 academic_required = role_required("admin", "teacher")
 guardian_required = role_required("guardian")
 library_required = role_required("admin", "librarian")
+
 
 # ------------------------------------------------------------------ grading
 # Kenyan CBC (Competency-Based Curriculum) achievement levels — used for ALL
@@ -294,6 +357,15 @@ def service_worker():
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 
+@app.after_request
+def security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("X-XSS-Protection", "0")
+    if os.environ.get("ELIMUPRO_HTTPS") == "1":
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
 @app.errorhandler(404)
 def not_found(e):
     if request.path.startswith("/api/"):
@@ -304,9 +376,20 @@ def not_found(e):
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json(force=True) or {}
-    u = q1("SELECT * FROM users WHERE username=? AND active=1", (data.get("username", "").strip(),))
-    if not u or u["password_hash"] != phash(data.get("password", "")):
+    uname = data.get("username", "").strip()
+    ip = request.remote_addr or "?"
+    key = f"{uname}|{ip}"
+    blocked = _check_rate(key)
+    if blocked:
+        return jsonify({"error": blocked}), 429
+    u = q1("SELECT * FROM users WHERE username=? AND active=1", (uname,))
+    if not u or not verify_password(u["password_hash"], data.get("password", "")):
+        _record_fail(key)
         return jsonify({"error": "Wrong password or username. Please check your details and try again."}), 401
+    _fails.pop(key, None)
+    # upgrade legacy SHA-256 hashes to scrypt on first successful login
+    if u["password_hash"] and not u["password_hash"].startswith("scrypt$"):
+        exe("UPDATE users SET password_hash=? WHERE id=?", (phash(data.get("password", "")), u["id"]))
     session["user_id"] = u["id"]
     session["role"] = u["role"]
     session["name"] = u["full_name"]
