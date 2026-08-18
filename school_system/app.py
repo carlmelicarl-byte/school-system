@@ -60,7 +60,12 @@ def school_by_slug(slug):
 
 def tenant_db_path(slug):
     s = school_by_slug(slug)
-    return s["db_path"] if s and s.get("active") else None
+    if not s or not s.get("active"):
+        return None
+    p = s["db_path"]
+    if not os.path.isabs(p):
+        p = os.path.join(BASE_DIR, p)
+    return p if os.path.exists(p) else None
 
 def find_user_global(username):
     """Look up a username across the super admin list and every school. Returns (user_row, school_slug or 'super')."""
@@ -82,6 +87,32 @@ def find_user_global(username):
         if u:
             return dict(u), sch["slug"]
     return None, None
+
+def ensure_platform():
+    """On first run (e.g. fresh Render deploy) create the platform registry,
+    the super admin and a demo school so the app is never empty or broken.
+    Existing data is never touched — this only fills gaps."""
+    import hashlib as _hl
+    m = open_meta()
+    su = m.execute("SELECT id FROM superusers WHERE username='superadmin'").fetchone()
+    if not su:
+        salt = secrets.token_hex(16)
+        h = _hl.scrypt(b"admin123", salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
+        m.execute("INSERT INTO superusers(username,password_hash,full_name) VALUES(?,?,?)",
+                  ("superadmin", f"scrypt${salt}${h.hex()}", "Platform Administrator"))
+        m.commit()
+    demos = m.execute("SELECT slug, db_path FROM schools WHERE slug='greenfield'").fetchall()
+    m.close()
+    main_db = os.path.join(BASE_DIR, "school.db")
+    if not os.path.exists(main_db):
+        import seed as _seed
+        print("[init] Creating demo school database...")
+        _seed.seed_db(main_db, school_name="Greenfield Academy", sample=True,
+                      admin_user="admin", admin_pass="admin123")
+        _seed.register_school("greenfield", "Greenfield Academy", "school.db")
+    elif not demos:
+        import seed as _seed
+        _seed.register_school("greenfield", "Greenfield Academy", "school.db")
 
 def _host_slug():
     """Subdomain-based school:  kisii-high.yourdomain.com -> 'kisii-high'."""
@@ -2563,9 +2594,8 @@ def schools_create():
                       admin_user=admin_user, admin_pass=admin_pass)
     except Exception as e:
         return jsonify({"error": f"Could not create school: {e}"}), 500
-    _seed_reg = open_meta()
-    _seed_reg.execute("INSERT INTO schools(slug,name,db_path) VALUES(?,?,?)", (slug, name, path))
-    _seed_reg.commit(); _seed_reg.close()
+    import seed as _seed2
+    _seed2.register_school(slug, name, os.path.relpath(path, BASE_DIR))
     log_activity("School created", f"{name} ({slug})")
     return jsonify({"ok": True, "slug": slug, "name": name, "sample": sample})
 
@@ -2597,8 +2627,10 @@ def settings_endpoint():
     cur.commit()
     return jsonify({"ok": True})
 
+def boot():
+    ensure_platform()
+
 if __name__ == "__main__":
-    if not os.path.exists(DB_PATH):
-        print("Database not found — run seed.py first")
+    boot()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=False)

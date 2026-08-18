@@ -872,10 +872,12 @@ def seed():
     register_school("greenfield", "Greenfield Academy", DB_PATH)
 
 def register_school(slug, name, db_path, active=1):
-    """Register (or update) a school in the platform meta database."""
+    """Register (or update) a school in the platform meta database (relative path)."""
     import os as _os
     import hashlib as _hl
     meta_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "meta.db")
+    if _os.path.isabs(db_path):
+        db_path = _os.path.relpath(db_path, _os.path.dirname(_os.path.abspath(__file__)))
     meta = sqlite3.connect(meta_path)
     meta.execute("""CREATE TABLE IF NOT EXISTS schools (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
