@@ -195,6 +195,29 @@ function timeAgo(iso) {
   return fmtDate(iso);
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+// login password visibility toggle
+const pwToggle = $("#pw-toggle");
+if (pwToggle) pwToggle.addEventListener("click", () => {
+  const inp = $("#login-password");
+  const show = inp.type === "password";
+  inp.type = show ? "text" : "password";
+  $("#pw-eye").classList.toggle("hidden", show);
+  $("#pw-eye-off").classList.toggle("hidden", !show);
+});
+
+// animated particles on the login screen
+function spawnParticles() {
+  const wrap = $("#login-particles");
+  if (!wrap) return;
+  const n = 26;
+  for (let i = 0; i < n; i++) {
+    const s = document.createElement("span");
+    const size = 2 + Math.random() * 4;
+    s.style.cssText = `left:${Math.random() * 100}%;width:${size}px;height:${size}px;animation-duration:${9 + Math.random() * 12}s;animation-delay:${-Math.random() * 14}s;opacity:${.3 + Math.random() * .6}`;
+    wrap.appendChild(s);
+  }
+}
+spawnParticles();
 function modal(html, wide = false) {
   $("#modal-box").innerHTML = html;
   $("#modal-box").classList.toggle("wide", wide);
@@ -287,6 +310,7 @@ const NAV = [
     { v: "analytics", label: "Analytics", icon: "i-chart", roles: ["admin", "teacher"] },
     { v: "reportcard", label: "Report Cards", icon: "i-report", roles: ["admin", "teacher"] },
     { v: "timetable", label: "Timetable", icon: "i-timetable", roles: ["admin", "teacher"] },
+    { v: "homework", label: "Homework", icon: "i-book", roles: ["admin", "teacher"] },
   ]},
   { group: "Operations", items: [
     { v: "finance", label: "Finance & Fees", icon: "i-money", roles: ["admin", "accounts"] },
@@ -311,6 +335,7 @@ const NAV = [
     { v: "gattendance", label: "Attendance", icon: "i-calendar", roles: ["guardian"] },
     { v: "gannounce", label: "Announcements", icon: "i-message", roles: ["guardian"] },
     { v: "gevents", label: "School Events", icon: "i-calendar", roles: ["guardian"] },
+    { v: "ghomework", label: "Homework", icon: "i-book", roles: ["guardian"] },
   ]},
 ];
 
@@ -334,6 +359,26 @@ function renderNav() {
 function showLogin() {
   $("#app").classList.add("hidden");
   $("#login-screen").classList.remove("hidden");
+  refreshLoginBrand();
+  spawnParticles();
+}
+// fill the login brand panel with school info + live counts
+async function refreshLoginBrand() {
+  const name = $("#login-school-name"), motto = $("#login-school-motto"),
+        statS = $("#login-stat-students"), statT = $("#login-stat-teachers"), statM = $("#login-stat-modules");
+  if (name) name.textContent = state.settings ? state.settings.school_name : "ElimuPro";
+  if (motto) motto.textContent = state.settings ? (state.settings.school_motto || "School Management System") : "School Management System";
+  if ($("#login-year")) $("#login-year").textContent = new Date().getFullYear();
+  try {
+    const d = await api("/api/dashboard");
+    if (statS) statS.textContent = d.counts.students;
+    if (statT) statT.textContent = d.counts.teachers;
+    if (statM) statM.textContent = 18;
+  } catch (e) {
+    if (statS) statS.textContent = "—";
+    if (statT) statT.textContent = "—";
+    if (statM) statM.textContent = 18;
+  }
 }
 function enterApp() {
   $("#login-screen").classList.add("hidden");
@@ -357,7 +402,12 @@ async function doLogin(username, password) {
   const card = $(".login-card");
   card.classList.remove("shake");
   const btn = $("#login-submit");
-  if (btn) { btn.disabled = true; btn.textContent = "Signing in…"; }
+  if (btn) {
+    btn.disabled = true;
+    const lbl = $(".btn-label", btn), spin = $(".btn-spinner", btn);
+    if (lbl) lbl.textContent = "Signing in…";
+    if (spin) spin.classList.remove("hidden");
+  }
   try {
     const u = await api("/api/login", { method: "POST", body: { username, password } });
     authToken = u.token || null;
@@ -373,7 +423,14 @@ async function doLogin(username, password) {
     void card.offsetWidth; // restart the animation
     card.classList.add("shake");
   }
-  finally { if (btn) { btn.disabled = false; btn.textContent = "Sign in"; } }
+  finally {
+    if (btn) {
+      btn.disabled = false;
+      const lbl = $(".btn-label", btn), spin = $(".btn-spinner", btn);
+      if (lbl) lbl.textContent = "Sign in";
+      if (spin) spin.classList.add("hidden");
+    }
+  }
 }
 $("#login-form").addEventListener("submit", (e) => { e.preventDefault(); doLogin($("#login-username").value.trim(), $("#login-password").value); });
 $("#logout-btn").addEventListener("click", async () => {
@@ -418,6 +475,8 @@ const VIEWS = {
   discipline:   { title: "Discipline & Conduct", sub: "Merits, demerits & behaviour", fn: view_discipline },
   gevents:      { title: "School Events",     sub: "What's happening at school",    fn: view_gevents },
   idcards:      { title: "ID Cards",          sub: "Student identification cards", fn: view_idcards },
+  homework:     { title: "Homework",          sub: "Assignments & due dates",       fn: view_homework },
+  ghomework:    { title: "Homework",          sub: "Assignments for your child",    fn: view_ghomework },
 
   settings:     { title: "Settings",         sub: "School configuration & users",  fn: view_settings },
   gdash:        { title: "My Dashboard",     sub: "Your children at a glance",     fn: view_gdash },
@@ -751,6 +810,17 @@ async function view_dashboard(el) {
             </div>`).join("") || '<p style="color:var(--muted)">No upcoming events</p>'}
         </div>
       </div>
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-head"><h3>Homework due</h3><p>Upcoming assignments</p></div>
+        <div>
+          ${(d.due_homework || []).map(h => `
+            <div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #f1f5f9">
+              <span class="badge b-blue">${esc(h.subject_name || "General")}</span>
+              <div style="flex:1"><b style="font-size:12.5px">${esc(h.title)}</b><br>
+                <small style="color:var(--muted)">${esc(h.class_name)} · due ${fmtDate(h.due_date)}</small></div>
+            </div>`).join("") || '<p style="color:var(--muted)">No upcoming homework</p>'}
+        </div>
+      </div>
       <div class="card">
         <div class="card-head"><h3>Recent announcements</h3><p>Latest news</p></div>
         <div class="scroll-y">
@@ -825,6 +895,8 @@ function renderStudents(el, students, classes, clsFilter = "", q = "", status = 
     <button class="btn btn-outline" onclick="importStudents()"><svg><use href="#i-upload2"/></svg> Import CSV</button>
     <button class="btn btn-outline" onclick="promoteClass()"><svg><use href="#i-arrow"/></svg> Promote</button>
     <button class="btn btn-outline" onclick="studentForm()"><svg><use href="#i-plus"/></svg> Add Student</button>`)}
+    <button class="btn btn-outline" onclick="exportExcel('students.xlsx',['Adm No','First Name','Middle','Last','Gender','Class','Parent','Phone','Status','House','Blood Group'],
+      ${JSON.stringify(rows.map(r => [r.admission_no, r.first_name, r.middle_name || "", r.last_name, r.gender, r.class_name || "", r.parent_name || "", r.parent_phone || "", r.status, r.house || "", r.blood_group || ""])).replace(/"/g, '&quot;')})">Excel</button>
     <button class="btn btn-outline" onclick="exportCSV('students.csv',['Adm No','First Name','Middle','Last','Gender','Class','Parent','Phone','Status'],
       ${JSON.stringify(rows.map(r => [r.admission_no, r.first_name, r.middle_name || "", r.last_name, r.gender, r.class_name || "", r.parent_name || "", r.parent_phone || "", r.status])).replace(/"/g, '&quot;')})">CSV</button>
   </div>
@@ -1514,6 +1586,8 @@ async function view_analytics(el, params) {
     </select>
     <span class="badge b-blue">${esc(d.selected_exam.term)} · ${esc(d.selected_exam.academic_year)}</span>
     <div class="grow"></div>
+    <button class="btn btn-outline" onclick="exportExcel('results-${esc(d.selected_exam.id)}.xlsx',['Rank','Adm No','Student','Class','Mean','Mean Grade','Class Pos','Points'],
+      ${JSON.stringify(x.ranked.map((r, i) => [i + 1, r.admission_no, r.name, r.class_name, r.mean, r.mean_grade, r.class_pos + "/" + r.class_size, r.total_points])).replace(/"/g, '&quot;')})">Excel</button>
     <button class="btn btn-outline" onclick="exportCSV('results-${esc(d.selected_exam.id)}.csv',
       ['Rank','Adm No','Student','Class','Mean','Mean Grade','Class Pos'],
       ${JSON.stringify(x.ranked.map((r, i) => [i + 1, r.admission_no, r.name, r.class_name, r.mean, r.mean_grade, r.class_pos + "/" + r.class_size])).replace(/"/g, '&quot;')})">CSV</button>
@@ -1743,7 +1817,11 @@ async function view_finance(el) {
 
   <div class="card">
     <div class="card-head"><h3>Student fee ledger</h3>
-      <div class="search-wrap"><svg><use href="#i-search"/></svg><input class="input" id="fin-q" placeholder="Search student…"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-outline btn-sm" onclick="exportExcel('fee-ledger-${esc(d.term)}.xlsx',['Adm No','Student','Class','Billed','Paid','Balance'],
+          ${JSON.stringify(d.students.map(s => [s.admission_no, s.first_name + " " + s.last_name, s.class_name || "", s.billed, s.paid, s.balance])).replace(/"/g, '&quot;')})">Excel</button>
+        <div class="search-wrap"><svg><use href="#i-search"/></svg><input class="input" id="fin-q" placeholder="Search student…"></div>
+      </div>
     </div>
     <div class="table-wrap"><table class="tbl">
       <thead><tr><th>Student</th><th>Class</th><th class="num">Billed</th><th class="num">Paid</th><th class="num">Balance</th><th style="min-width:150px">Payment progress</th><th>Status</th><th>Payments</th>${acctBtn('<th class="num">Actions</th>')}</tr></thead>
@@ -2698,6 +2776,10 @@ async function view_communication(el) {
           <div><label>Title</label><input id="an-title" class="input" placeholder="Fee Reminder"></div>
           <div><label>Audience</label><select id="an-aud" class="input">
             <option>All</option><option>Parents</option><option>Teachers</option></select></div>
+          <div><label>Message template <small style="font-weight:400;color:var(--muted)">(optional)</small></label>
+            <select id="an-tpl" class="input"><option value="">— choose a template —</option>
+              ${SMS_TEMPLATES.map(t => `<option>${t.name}</option>`).join("")}
+            </select></div>
           <div><label>Message</label><textarea id="an-msg" class="input" rows="4" placeholder="Message text…"></textarea></div>
           <button class="btn btn-primary" id="an-send"><svg><use href="#i-sms"/></svg> Publish &amp; SMS parents</button>
         </div>
@@ -2718,6 +2800,11 @@ async function view_communication(el) {
       </div>
     </div>
   </div>`;
+  const tpl = $("#an-tpl");
+  if (tpl) tpl.addEventListener("change", () => {
+    const t = SMS_TEMPLATES.find(x => x.name === tpl.value);
+    if (t) $("#an-msg").value = t.text;
+  });
   const sendBtn = $("#an-send");
   if (sendBtn) sendBtn.addEventListener("click", async () => {
     const title = $("#an-title").value.trim(), msg = $("#an-msg").value.trim();
@@ -2772,6 +2859,8 @@ async function renderBooks() {
       ${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select>
     <div class="grow"></div>
     ${canLib() ? `<button class="btn btn-outline" onclick="bookForm()"><svg><use href="#i-plus"/></svg> Add Book</button>` : ""}
+    <button class="btn btn-outline" onclick="exportExcel('library-books.xlsx',['Title','Author','Category','ISBN','Shelf','Total','Available'],
+      ${JSON.stringify(books.map(b => [b.title, b.author || "", b.category, b.isbn || "", b.shelf || "", b.total_copies, b.available_copies])).replace(/"/g, '&quot;')})">Excel</button>
   </div>
   <div class="table-wrap"><table class="tbl">
     <thead><tr><th>Title</th><th>Author</th><th>Category</th><th>ISBN</th><th>Shelf</th><th class="num">Copies</th><th class="num">Out</th><th>Status</th>${canLib() ? '<th class="num">Actions</th>' : ""}</tr></thead>
@@ -3549,6 +3638,333 @@ function printIdCards() {
   window.addEventListener("afterprint", clear, { once: true });
   setTimeout(clear, 30000);
 }
+
+/* ============================================================
+   POLISH FEATURES — Excel export, Ctrl+K palette, Homework,
+   Events calendar view, SMS templates
+   ============================================================ */
+
+/* ---- Excel (.xlsx) export: POST data to the server, download file ---- */
+async function exportExcel(filename, headers, rows) {
+  try {
+    const res = await fetch("/api/export/xlsx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: "Bearer " + authToken } : {}) },
+      body: JSON.stringify({ filename, headers, rows }),
+    });
+    if (!res.ok) throw new Error("Export failed");
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename.endsWith(".xlsx") ? filename : filename + ".xlsx";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    toast("Excel file downloaded");
+  } catch (e) { toast("Could not export — is the server online?", "err"); }
+}
+
+/* ---- Ctrl+K global search palette ---- */
+function buildPalette() {
+  if (document.getElementById("palette")) return;
+  const d = document.createElement("div");
+  d.id = "palette";
+  d.className = "palette hidden";
+  d.innerHTML = `
+    <div class="palette-box">
+      <div class="palette-input">
+        <svg style="width:18px;height:18px"><use href="#i-search"/></svg>
+        <input id="pal-q" placeholder="Search students, teachers, books, or jump to a page…  (Esc to close)" autocomplete="off">
+      </div>
+      <div id="pal-results" class="palette-results"></div>
+      <div class="palette-foot">↑↓ navigate · Enter open · Esc close</div>
+    </div>`;
+  document.body.appendChild(d);
+
+  const box = $("#pal-q");
+  const results = $("#pal-results");
+  let items = [], active = -1;
+
+  function closePalette() { d.classList.add("hidden"); }
+  function render(list) {
+    items = list; active = -1;
+    results.innerHTML = list.map((it, i) => `
+      <div class="pal-item ${i === 0 ? "on" : ""}" data-i="${i}">
+        <svg style="width:15px;height:15px"><use href="#${it.icon}"/></svg>
+        <span><b>${esc(it.title)}</b><small>${esc(it.sub || "")}</small></span>
+      </div>`).join("") || '<div class="pal-empty">No matches</div>';
+  }
+  async function run(q) {
+    const ql = (q || "").toLowerCase().trim();
+    const out = [];
+    if (!ql) {
+      // default: jump links
+      [["Dashboard", "dashboard", "i-grid"], ["Students", "students", "i-users"],
+       ["Teachers", "teachers", "i-teacher"], ["Classes", "classes", "i-class"],
+       ["Exams & Marks", "exams", "i-exam"], ["Analytics", "analytics", "i-chart"],
+       ["Finance", "finance", "i-money"], ["Transport", "transport", "i-bus"],
+       ["Library", "library", "i-book"], ["Events", "events", "i-calendar"],
+       ["Timetable", "timetable", "i-timetable"], ["Homework", "homework", "i-book"],
+       ["Report Cards", "reportcard", "i-report"], ["Attendance", "attendance", "i-calendar"],
+       ["Discipline", "discipline", "i-shield"], ["ID Cards", "idcards", "i-card"],
+       ["Communication", "communication", "i-message"], ["Settings", "settings", "i-gear"]]
+        .forEach(([t, v, ic]) => out.push({ title: t, sub: "Open page", icon: ic, action: () => openView(v) }));
+      render(out);
+      return;
+    }
+    try {
+      const [students, teachers, books] = await Promise.all([
+        api("/api/students").catch(() => []),
+        api("/api/teachers").catch(() => []),
+        api("/api/library/books").catch(() => []),
+      ]);
+      students.filter(s => (s.first_name + " " + s.last_name + " " + (s.admission_no || "")).toLowerCase().includes(ql))
+        .slice(0, 6).forEach(s => out.push({ title: s.first_name + " " + s.last_name, sub: s.admission_no + " · " + (s.class_name || ""), icon: "i-users", action: () => studentDetail(s.id) }));
+      teachers.filter(t => (t.first_name + " " + t.last_name).toLowerCase().includes(ql))
+        .slice(0, 4).forEach(t => out.push({ title: t.first_name + " " + t.last_name, sub: "Teacher · " + (t.subject_name || ""), icon: "i-teacher" }));
+      books.filter(b => (b.title + " " + (b.author || "")).toLowerCase().includes(ql))
+        .slice(0, 4).forEach(b => out.push({ title: b.title, sub: "Book · " + (b.category || ""), icon: "i-book" }));
+      if (!out.length) {
+        [[ql, "students", "i-users"], [ql, "finance", "i-money"], [ql, "analytics", "i-chart"]]
+          .forEach(([q2, v, ic]) => out.push({ title: 'Search "' + q2 + '" in ' + v, sub: "Open " + v, icon: ic, action: () => openView(v, { q: q2 }) }));
+      }
+    } catch (e) {}
+    render(out);
+  }
+  let deb;
+  box.addEventListener("input", e => { clearTimeout(deb); deb = setTimeout(() => run(e.target.value), 220); });
+  box.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (items.length) { active = (active + 1) % items.length; paint(); } }
+    if (e.key === "ArrowUp") { e.preventDefault(); if (items.length) { active = (active - 1 + items.length) % items.length; paint(); } }
+    if (e.key === "Enter") { e.preventDefault(); const it = items[active >= 0 ? active : 0]; if (it) { closePalette(); it.action(); } }
+  });
+  function paint() {
+    $$(".pal-item").forEach((el, i) => el.classList.toggle("on", i === active));
+  }
+  results.addEventListener("click", e => {
+    const el = e.target.closest(".pal-item"); if (!el) return;
+    const it = items[Number(el.dataset.i)];
+    if (it) { closePalette(); it.action(); }
+  });
+  d.addEventListener("click", e => { if (e.target === d) closePalette(); });
+  run("");
+}
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    const p = $("#palette");
+    if (!p) { buildPalette(); }
+    const pp = $("#palette");
+    pp.classList.remove("hidden");
+    $("#pal-q").focus();
+    $("#pal-q").select();
+  }
+});
+
+/* ---- HOMEWORK (staff) ---- */
+async function view_homework(el, params) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading…</p></div>`;
+  const [classes, subjects, hw] = await Promise.all([api("/api/classes"), api("/api/subjects"), api("/api/homework")]);
+  el.innerHTML = `
+  <div class="toolbar">
+    <select class="input" id="hw-class" style="min-width:180px"><option value="">All classes</option>
+      ${classes.map(c => `<option value="${c.id}" ${params.classId && String(c.id) === String(params.classId) ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+    </select>
+    <select class="input" id="hw-subj" style="min-width:160px"><option value="">All subjects</option>
+      ${subjects.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}
+    </select>
+    <select class="input" id="hw-status" style="min-width:140px"><option value="">Any status</option><option>Upcoming</option><option>Overdue</option></select>
+    <div class="grow"></div>
+    ${can("admin", "teacher") ? `<button class="btn btn-primary" onclick="homeworkForm()"><svg><use href="#i-plus"/></svg> Assign Homework</button>` : ""}
+  </div>
+  <div id="hw-list"></div>`;
+  const render = () => {
+    const cid = $("#hw-class").value, sid = $("#hw-subj").value, st = $("#hw-status").value;
+    const rows = hw.filter(h =>
+      (!cid || String(h.class_id) === cid) && (!sid || String(h.subject_id) === sid) &&
+      (!st || (st === "Overdue" ? h.overdue : !h.overdue)));
+    $("#hw-list").innerHTML = rows.length ? `
+      <div class="grid-3">
+        ${rows.map(h => `
+          <div class="card" style="padding:14px 16px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div>
+                <span class="badge ${h.overdue ? "b-red" : "b-blue"}">${esc(h.subject_name || "General")}</span>
+                <h4 style="margin-top:6px;font-size:14px">${esc(h.title)}</h4>
+              </div>
+              ${can("admin", "teacher") ? `<div class="actions">
+                <button class="ic-btn" onclick="homeworkForm(${h.id})"><svg><use href="#i-edit"/></svg></button>
+                <button class="ic-btn" onclick="deleteHomework(${h.id})"><svg><use href="#i-close"/></svg></button>
+              </div>` : ""}
+            </div>
+            <p style="font-size:12px;color:var(--muted);margin-top:6px">${esc(h.class_name)} · by ${esc(h.assigned_by || "—")}</p>
+            ${h.description ? `<p style="font-size:12.5px;color:var(--slate);margin-top:6px">${esc(h.description)}</p>` : ""}
+            <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+              <span class="badge ${h.overdue ? "b-red" : "b-green"}">Due ${fmtDate(h.due_date)}${h.overdue ? " · OVERDUE" : ""}</span>
+            </div>
+          </div>`).join("")}
+      </div>` : '<div class="empty">No homework matches</div>';
+  };
+  $("#hw-class").addEventListener("change", render);
+  $("#hw-subj").addEventListener("change", render);
+  $("#hw-status").addEventListener("change", render);
+  render();
+}
+async function homeworkForm(id) {
+  const [classes, subjects, all] = await Promise.all([api("/api/classes"), api("/api/subjects"), api("/api/homework")]);
+  let h = { class_id: "", subject_id: "", due_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) };
+  if (id) h = all.find(x => x.id === id) || h;
+  modal(`
+  <div class="modal-head"><h3>${id ? "Edit Homework" : "Assign Homework"}</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
+  <div class="modal-body"><div class="form-grid">
+    <div><label>Class *</label><select id="hw-f-class" class="input">${classes.map(c => `<option value="${c.id}" ${String(h.class_id) === String(c.id) ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+    <div><label>Subject</label><select id="hw-f-subj" class="input"><option value="">General</option>${subjects.map(s => `<option value="${s.id}" ${String(h.subject_id) === String(s.id) ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></div>
+    <div class="full"><label>Title *</label><input id="hw-f-title" class="input" value="${esc(h.title || "")}" placeholder="e.g. Exercise: fractions"></div>
+    <div class="full"><label>Description</label><textarea id="hw-f-desc" class="input" rows="3" placeholder="Instructions…">${esc(h.description || "")}</textarea></div>
+    <div class="full"><label>Due date</label><input id="hw-f-due" class="input" type="date" value="${esc(h.due_date || "")}"></div>
+  </div></div>
+  <div class="modal-foot"><button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" id="hw-save">${id ? "Save Changes" : "Assign"}</button></div>`);
+  $("#hw-save").addEventListener("click", async () => {
+    const title = $("#hw-f-title").value.trim();
+    if (!title) { toast("Title required", "err"); return; }
+    const body = { class_id: Number($("#hw-f-class").value), subject_id: $("#hw-f-subj").value ? Number($("#hw-f-subj").value) : null,
+      title, description: $("#hw-f-desc").value.trim(), due_date: $("#hw-f-due").value };
+    try {
+      if (id) { await api("/api/homework/" + id, { method: "PUT", body }); toast("Homework updated"); }
+      else { await api("/api/homework", { method: "POST", body }); toast("Homework assigned"); }
+      closeModal(); openView("homework");
+    } catch (err) { toast(err.message, "err"); }
+  });
+}
+async function deleteHomework(id) {
+  try { await api("/api/homework/" + id, { method: "DELETE" }); toast("Homework removed"); openView("homework"); }
+  catch (err) { toast(err.message, "err"); }
+}
+
+/* ---- HOMEWORK (guardian) ---- */
+async function view_ghomework(el) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading…</p></div>`;
+  const kids = await gChildren();
+  if (!kids.length) { el.innerHTML = emptyState("No children linked", "Contact the school office to link your account."); return; }
+  await gChildSwitcher(el);
+  const hw = await api(`/api/guardian/homework?student_id=${gChildId()}`);
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = hw.filter(h => !h.overdue);
+  const overdue = hw.filter(h => h.overdue);
+  el.innerHTML = `
+  ${await gChildSwitcher(el)}
+  <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+    ${statCard("blue", "i-book", upcoming.length, "Upcoming assignments", "due soon")}
+    ${statCard("red", "i-book", overdue.length, "Overdue", "need attention")}
+  </div>
+  <div class="card"><div class="card-head"><h3>Assignments</h3><p>For ${esc(kids.find(k => k.student_id === gChildId())?.name || "")}</p></div>
+    <div class="grid-3">
+      ${hw.map(h => `
+        <div class="card" style="padding:14px 16px;border-color:${h.overdue ? "var(--red)" : "var(--line)"}">
+          <span class="badge ${h.overdue ? "b-red" : "b-blue"}">${esc(h.subject_name || "General")}</span>
+          <h4 style="margin-top:6px;font-size:14px">${esc(h.title)}</h4>
+          ${h.description ? `<p style="font-size:12.5px;color:var(--slate);margin-top:6px">${esc(h.description)}</p>` : ""}
+          <div style="margin-top:10px"><span class="badge ${h.overdue ? "b-red" : "b-green"}">Due ${fmtDate(h.due_date)}${h.overdue ? " · OVERDUE" : ""}</span></div>
+        </div>`).join("") || '<p style="color:var(--muted)">No assignments yet.</p>'}
+    </div>
+  </div>`;
+  bindGChild("ghomework");
+}
+
+/* ---- EVENTS calendar month view ---- */
+async function view_events(el, params) {
+  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading events…</p></div>`;
+  const events = await api("/api/events");
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = events.filter(e => e.upcoming);
+  const past = events.filter(e => !e.upcoming);
+  el.innerHTML = `
+  <div class="toolbar">
+    <p style="color:var(--muted)">${upcoming.length} upcoming · ${past.length} past</p>
+    <div class="grow"></div>
+    ${adminBtn(`<button class="btn btn-outline" onclick="eventForm()"><svg><use href="#i-plus"/></svg> Add Event</button>`)}
+  </div>
+  <div class="tab-row">
+    <button class="tab-btn active" id="ev-tab-list">List</button>
+    <button class="tab-btn" id="ev-tab-cal">Calendar</button>
+  </div>
+  <div id="ev-body"></div>`;
+
+  const renderList = (list) => {
+    const grouped = {};
+    list.forEach(e => { const m = fmtDate(e.event_date).split(" ").slice(0, 2).join(" "); (grouped[m] = grouped[m] || []).push(e); });
+    $("#ev-body").innerHTML = Object.keys(grouped).map(month => `
+      <div class="section-title">${esc(month)}</div>
+      ${grouped[month].map(e => `
+        <div class="card" style="margin-bottom:10px;padding:14px 18px">
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <div style="width:46px;flex:none;text-align:center;background:var(--green-100);color:var(--green-dark);border-radius:10px;padding:6px 2px">
+              <b style="font-size:15px">${fmtDate(e.event_date).split(" ")[0]}</b>
+              <small style="display:block;font-size:9.5px">${fmtDate(e.event_date).split(" ")[1]}</small>
+            </div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <b style="font-size:14px">${esc(e.title)}</b>
+                <span class="badge ${evCatBadge(e.category)}">${esc(e.category)}</span>
+                <span class="badge b-slate">${esc(e.audience)}</span>
+              </div>
+              ${e.description ? `<p style="font-size:12.5px;color:var(--slate);margin-top:4px">${esc(e.description)}</p>` : ""}
+              <small style="color:var(--muted)">Added by ${esc(e.created_by || "Admin")}</small>
+            </div>
+            ${adminBtn(`<div style="display:flex;gap:6px">
+              <button class="ic-btn" title="Edit" onclick="eventForm(${e.id})"><svg><use href="#i-edit"/></svg></button>
+              <button class="ic-btn" title="Delete" onclick="deleteEvent(${e.id},'${esc(e.title)}')"><svg><use href="#i-close"/></svg></button>
+            </div>`)}
+          </div>
+        </div>`).join("") || '<div class="empty">No events here yet</div>'}
+    `).join("");
+  };
+
+  const renderCal = () => {
+    // simple month grid for the current month
+    const now = new Date();
+    const year = now.getFullYear(), month = now.getMonth();
+    const first = new Date(year, month, 1);
+    const startDay = first.getDay(); // 0=Sun
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const byDate = {};
+    events.forEach(e => { if (e.event_date) byDate[e.event_date] = byDate[e.event_date] || []; byDate[e.event_date].push(e); });
+    const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    let cells = "";
+    for (let i = 0; i < startDay; i++) cells += '<div class="cal-day cal-blank"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const evs = byDate[iso] || [];
+      const isToday = iso === today;
+      cells += `<div class="cal-day ${isToday ? "cal-today" : ""}">
+        <span class="cal-num">${d}</span>
+        ${evs.slice(0, 3).map(e => `<div class="cal-chip ${evCatBadge(e.category).replace("b-", "")}" title="${esc(e.title)}">${esc(e.title.length > 16 ? e.title.slice(0, 15) + "…" : e.title)}</div>`).join("")}
+        ${evs.length > 3 ? `<small style="color:var(--muted)">+${evs.length - 3} more</small>` : ""}
+      </div>`;
+    }
+    $("#ev-body").innerHTML = `
+      <div class="card" style="padding:0;overflow:auto">
+        <div style="text-align:center;padding:12px;font-weight:800;font-size:15px">${esc(monthNames[month])} ${year}</div>
+        <div class="cal-grid">
+          ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(dd => `<div class="cal-dow">${dd}</div>`).join("")}
+          ${cells}
+        </div>
+      </div>`;
+  };
+
+  $("#ev-tab-list").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#ev-tab-list").classList.add("active"); renderList(upcoming); });
+  $("#ev-tab-cal").addEventListener("click", () => { $$(".tab-btn").forEach(b => b.classList.remove("active")); $("#ev-tab-cal").classList.add("active"); renderCal(); });
+  renderList(params.tab === "past" ? past : upcoming);
+}
+
+/* ---- SMS message templates (Communication) ---- */
+const SMS_TEMPLATES = [
+  { name: "Fee Reminder", text: "Dear {Parent}, this is a reminder that {Student} ({AdmNo}) has an outstanding fee balance of {Amount}. Kindly clear it before the end of term. Thank you. - {School}" },
+  { name: "Exam Results Out", text: "Dear {Parent}, results for {Exam} are now available on the parent portal. Log in with your phone number to view {Student}'s results. - {School}" },
+  { name: "Attendance Alert", text: "Dear {Parent}, {Student} was marked {Status} today ({Date}). Please contact the school office. - {School}" },
+  { name: "Event / Meeting Notice", text: "Dear {Parent}, {Event} will take place on {Date}. We look forward to seeing you. - {School}" },
+  { name: "School Holiday Notice", text: "Dear {Parent}, the school will be closed from {Date} for holidays. School reopens on {Date2}. Enjoy the break. - {School}" },
+];
 
 /* ============================================================
    PARENT / GUARDIAN PORTAL

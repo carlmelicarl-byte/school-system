@@ -3,3 +3,5 @@
 Flask>=3.0,<4
 waitress>=3.0.0
 gunicorn>=22.0.0; sys_platform != "win32"
+
+openpyxl>=3.1

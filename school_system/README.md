@@ -144,6 +144,17 @@ Parent accounts are created automatically from student records: username = the p
 - **Librarian account** — `librarian` / `librarian123` — manages the library; teachers can view the catalogue; other roles are blocked (server-enforced)
 - Dashboard shows total books, issued and overdue counts
 
+### 📝 Homework & Assignments *(new)*
+- Teachers assign homework per class & subject with descriptions and due dates; overdue assignments are flagged automatically
+- Staff Homework page with class/subject/status filters; parents see their child's assignments (upcoming + overdue) in the portal
+- Dashboard shows upcoming homework due across the school
+
+### ✨ Polish pack *(new)*
+- **Ctrl+K global search** — search students, teachers and books from anywhere, or jump straight to any page (works with ⌘K on Mac)
+- **Excel export** — one-click .xlsx downloads for Students, exam Results, the fee ledger, Library books (CSV still available)
+- **Events calendar month view** — switch between the list and a month grid on the Events page
+- **SMS message templates** — fee reminder, results-out, attendance alert, meeting notice, holiday notice — prefill the announcement box instantly
+
 ### 📶 Offline & online mode (auto-sync)
 - A **service worker** caches the app shell and your data, so the system keeps working **offline** — you can view everything you've already loaded (students, results, fees, timetables…)
 - A live **Online / Offline pill** in the top bar and an offline banner tell you the connection state

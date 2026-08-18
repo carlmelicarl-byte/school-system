@@ -17,24 +17,102 @@ body{
 .hidden{display:none!important}
 svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
 
-/* ---------- login ---------- */
-.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:var(--login-bg,radial-gradient(1200px 600px at 20% -10%,#14532d 0%,transparent 55%),
-             radial-gradient(900px 500px at 110% 110%,#052e16 0%,transparent 50%),
-             linear-gradient(160deg,#0f172a,#052e16));padding:24px}
-.login-card{background:#fff;border-radius:20px;padding:36px 34px;width:100%;max-width:400px;box-shadow:var(--shadow-lg)}
-.login-logo{text-align:center;margin-bottom:22px}
-.login-logo h1{font-size:28px;letter-spacing:-.5px;color:var(--green-deep)}
-.login-logo p{color:var(--muted);font-size:13px}
-.login-card label{display:block;font-weight:600;font-size:13px;margin:14px 0 6px;color:var(--slate)}
-.login-card input{width:100%;padding:11px 13px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;outline:none}
-.login-card input:focus{border-color:var(--green);box-shadow:0 0 0 3px var(--green-100)}
-.login-error{color:var(--red);font-size:13px;font-weight:600;margin-top:12px;text-align:center;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px}
-@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-9px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(4px)}}
+/* ============================================================
+   LOGIN — professional split-screen with animated background
+   ============================================================ */
+.login-screen{position:relative;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;padding:24px;background:linear-gradient(135deg,#0b1226 0%,#0d1f3c 45%,#123a4f 100%)}
+
+/* --- animated background layers --- */
+.login-bg{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5;mix-blend-mode:screen;animation:orbFloat 16s ease-in-out infinite}
+.orb-1{width:480px;height:480px;background:#16a34a;top:-12%;left:-8%}
+.orb-2{width:420px;height:420px;background:#2563eb;bottom:-14%;right:-6%;animation-delay:-5s}
+.orb-3{width:340px;height:340px;background:#7c3aed;top:38%;left:52%;opacity:.35;animation-delay:-10s}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(40px,-30px) scale(1.08)}66%{transform:translate(-30px,25px) scale(.94)}}
+.login-grid-overlay{position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(ellipse at 50% 40%,#000 30%,transparent 75%)}
+.login-particles{position:absolute;inset:0}
+.login-particles span{position:absolute;bottom:-8px;border-radius:50%;background:rgba(255,255,255,.5);animation:rise linear infinite}
+@keyframes rise{0%{transform:translateY(0) translateX(0);opacity:0}10%{opacity:.9}90%{opacity:.7}100%{transform:translateY(-105vh) translateX(30px);opacity:0}}
+
+/* --- shell: split layout --- */
+.login-shell{position:relative;z-index:2;display:flex;width:100%;max-width:1020px;min-height:600px;
+  border-radius:24px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.1)}
+
+/* left brand panel */
+.login-brand{flex:1.15;padding:44px 46px;display:flex;flex-direction:column;gap:26px;
+  background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));color:#fff;position:relative}
+.login-brand::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(600px 300px at 15% 10%,rgba(74,222,128,.14),transparent 60%)}
+.brand-top{display:flex;align-items:center;gap:13px}
+.login-logo-badge{width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#16a34a,#0d9488);
+  display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 8px 22px rgba(22,163,74,.4)}
+.login-logo-badge svg{width:26px;height:26px}
+.brand-top h1{font-size:21px;letter-spacing:-.4px;color:#fff}
+.brand-top .tagline{font-size:12.5px;color:rgba(255,255,255,.65)}
+.brand-hero h2{font-size:32px;line-height:1.18;letter-spacing:-.8px;margin:6px 0 12px;font-weight:800}
+.brand-hero h2 span{background:linear-gradient(90deg,#4ade80,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand-hero p{font-size:13.5px;color:rgba(255,255,255,.72);max-width:400px;line-height:1.6}
+.brand-features{display:flex;flex-direction:column;gap:10px}
+.bf-item{display:flex;align-items:center;gap:10px;font-size:13.5px;color:rgba(255,255,255,.85)}
+.bf-item svg{width:17px;height:17px;color:#4ade80;flex:none}
+.brand-foot{display:flex;gap:26px;margin-top:auto;padding-top:18px;border-top:1px solid rgba(255,255,255,.12)}
+.bf-stat b{display:block;font-size:22px;font-weight:800;color:#fff}
+.bf-stat small{font-size:11px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.08em}
+
+/* right form panel */
+.login-panel{flex:1;padding:44px 46px;display:flex;flex-direction:column;justify-content:center;
+  background:#f8fafc;position:relative}
+.login-card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:34px 34px 26px;
+  box-shadow:0 18px 50px rgba(15,23,42,.12);width:100%}
+.login-card-head h3{font-size:21px;letter-spacing:-.4px;color:var(--ink);margin-bottom:4px}
+.login-card-head p{font-size:13px;color:var(--muted);margin-bottom:22px}
+.field{margin-bottom:16px}
+.field label{display:block;font-weight:600;font-size:12.5px;margin-bottom:6px;color:var(--slate)}
+.input-wrap{position:relative;display:flex;align-items:center}
+.input-wrap > svg{position:absolute;left:13px;width:16px;height:16px;color:var(--muted);pointer-events:none}
+.input-wrap input{width:100%;padding:12px 42px 12px 38px;border:1.5px solid var(--line);border-radius:11px;
+  font-size:14px;outline:none;background:#fff;transition:border-color .2s, box-shadow .2s;font-family:inherit}
+.input-wrap input:focus{border-color:var(--green);box-shadow:0 0 0 4px var(--green-100)}
+.input-wrap input::placeholder{color:#c0c9d6}
+.pw-toggle{position:absolute;right:8px;background:none;border:0;cursor:pointer;color:var(--muted);
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px}
+.pw-toggle:hover{color:var(--green-dark);background:var(--green-50)}
+.pw-toggle svg{width:17px;height:17px}
+#login-submit{position:relative;margin-top:6px;padding:13px;font-size:14.5px;border-radius:11px;
+  background:linear-gradient(135deg,#16a34a,#0d9488);box-shadow:0 8px 20px rgba(22,163,74,.35);
+  overflow:hidden;transition:transform .15s, box-shadow .2s}
+#login-submit:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(22,163,74,.45)}
+#login-submit:active{transform:translateY(0)}
+#login-submit::after{content:"";position:absolute;top:0;left:-80%;width:50%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-20deg);
+  animation:shine 3.2s ease-in-out infinite}
+@keyframes shine{0%,60%{left:-80%}100%{left:130%}}
+.btn-spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;
+  animation:spin .7s linear infinite;margin:0 auto;display:inline-block}
+.login-card-foot{margin-top:20px;padding-top:16px;border-top:1px dashed var(--line);text-align:center}
+.login-card-foot p{font-size:12px;color:var(--muted);line-height:1.55}
+.login-card-foot .forgot{margin-top:6px;font-size:11.5px}
+.login-copy{margin-top:20px;text-align:center;font-size:11.5px;color:#94a3b8}
+
+/* --- entrance animations --- */
+.anim-up{opacity:0;transform:translateY(18px);animation:animUp .55s cubic-bezier(.22,.9,.35,1) forwards}
+.anim-card{opacity:0;transform:translateY(24px) scale(.98);animation:animCard .5s cubic-bezier(.22,.9,.35,1) forwards}
+.anim-up.delay-1{animation-delay:.12s}.anim-up.delay-2{animation-delay:.24s}
+.anim-up.delay-3{animation-delay:.36s}.anim-up.delay-4{animation-delay:.48s}
+@keyframes animUp{to{opacity:1;transform:none}}
+@keyframes animCard{to{opacity:1;transform:none}}
 .login-card.shake{animation:shake .45s ease}
-.quick-login-row{display:flex;gap:8px;margin-top:14px}
-.quick-login-row .btn{flex:1;justify-content:center}
-.login-hint{margin-top:18px;font-size:12.5px;color:var(--muted);text-align:center;border-top:1px dashed var(--line);padding-top:14px}
+
+/* responsive: stack panels on small screens */
+@media(max-width:860px){
+  .login-shell{flex-direction:column;max-width:440px;min-height:0}
+  .login-brand{display:none}
+  .login-panel{padding:30px 22px}
+  .login-card{padding:26px 22px}
+}
 
 /* ---------- layout ---------- */
 .app{display:flex;min-height:100vh}
@@ -379,6 +457,33 @@ body.print-mode #app{display:none!important}
   body.print-mode #idc-print-area .idc-pair{display:inline-block;vertical-align:top;width:49%}
   .no-print{display:none!important}
 }
+
+/* ---------- Ctrl+K command palette ---------- */
+.palette{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(2px);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:12vh 16px 16px}
+.palette.hidden{display:none}
+.palette-box{background:#fff;border-radius:14px;box-shadow:var(--shadow-lg);width:100%;max-width:560px;overflow:hidden;animation:pop .15s ease}
+.palette-input{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);color:var(--muted)}
+.palette-input input{border:0;outline:0;flex:1;font-size:15px;font-family:inherit}
+.palette-results{max-height:380px;overflow-y:auto;padding:6px}
+.pal-item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:9px;cursor:pointer}
+.pal-item.on{background:var(--green-50)}
+.pal-item svg{color:var(--muted)}
+.pal-item b{font-size:13.5px;display:block}
+.pal-item small{color:var(--muted);font-size:11.5px}
+.pal-empty{padding:20px;text-align:center;color:var(--muted)}
+.palette-foot{padding:8px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);text-align:center}
+
+/* ---------- events calendar ---------- */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#eef2f7;padding:1px}
+.cal-dow{background:#f8fafc;text-align:center;font-size:11px;font-weight:700;color:var(--slate);padding:8px 4px}
+.cal-day{background:#fff;min-height:92px;padding:6px;position:relative}
+.cal-blank{background:#f8fafc}
+.cal-today{background:var(--green-50);box-shadow:inset 0 0 0 1.5px var(--green)}
+.cal-num{font-weight:700;font-size:12.5px;color:var(--slate)}
+.cal-today .cal-num{color:var(--green-dark)}
+.cal-chip{font-size:10px;font-weight:600;color:#fff;border-radius:5px;padding:2px 5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-chip.green{background:#16a34a}.cal-chip.blue{background:#2563eb}.cal-chip.violet{background:#7c3aed}
+.cal-chip.amber{background:#d97706}.cal-chip.red{background:#dc2626}.cal-chip.slate{background:#64748b}
 
 /* ---------- transport ---------- */
 .route-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff;box-shadow:var(--shadow)}

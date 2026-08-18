@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ElimuPro — School Management System</title>
-<link rel="stylesheet" href="/static/css/style.css?v=22">
+<link rel="stylesheet" href="/static/css/style.css?v=24">
 </head>
 <body>
 
@@ -16,21 +16,86 @@
 
 <!-- ======================= LOGIN ======================= -->
 <div id="login-screen" class="login-screen hidden">
-  <div class="login-card">
-    <div class="login-logo">
-      <svg viewBox="0 0 48 48" width="52" height="52"><path fill="#16a34a" d="M24 4 3 14l21 10 15-7.1V30h4V14L24 4z"/><path fill="#14532d" d="M11 25.5V34c0 3.9 5.8 8 13 8s13-4.1 13-8v-8.5L24 30l-13-4.5z"/></svg>
-      <h1>ElimuPro</h1>
-      <p>School Management System</p>
+  <!-- animated background -->
+  <div class="login-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="login-grid-overlay"></div>
+    <div class="login-particles" id="login-particles"></div>
+  </div>
+
+  <div class="login-shell">
+    <!-- LEFT: brand panel -->
+    <div class="login-brand">
+      <div class="brand-top anim-up">
+        <div class="login-logo-badge">
+          <svg viewBox="0 0 48 48" width="30" height="30"><path fill="currentColor" d="M24 4 3 14l21 10 15-7.1V30h4V14L24 4z"/><path fill="currentColor" opacity=".65" d="M11 25.5V34c0 3.9 5.8 8 13 8s13-4.1 13-8v-8.5L24 30l-13-4.5z"/></svg>
+        </div>
+        <div>
+          <h1 id="login-school-name">ElimuPro</h1>
+          <p class="tagline" id="login-school-motto">School Management System</p>
+        </div>
+      </div>
+
+      <div class="brand-hero anim-up delay-1">
+        <h2 id="login-hero-line">Manage your entire school,<br><span>effortlessly.</span></h2>
+        <p>Students · Academics · Finance · Transport · Library · Parent portal — all in one clean, secure platform built for Kenyan schools.</p>
+      </div>
+
+      <div class="brand-features anim-up delay-2">
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>CBC curriculum &amp; E/M/A/B grading</span></div>
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>M-PESA-ready fee management</span></div>
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>Parent portal with results &amp; balances</span></div>
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>Report cards, ID cards &amp; receipts</span></div>
+      </div>
+
+      <div class="brand-foot anim-up delay-3">
+        <div class="bf-stat"><b id="login-stat-students">—</b><small>Students</small></div>
+        <div class="bf-stat"><b id="login-stat-teachers">—</b><small>Teachers</small></div>
+        <div class="bf-stat"><b id="login-stat-modules">—</b><small>Modules</small></div>
+      </div>
     </div>
-    <form id="login-form">
-      <label>Username</label>
-      <input type="text" id="login-username" placeholder="Enter your username" autocomplete="username" required>
-      <label>Password</label>
-      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" required>
-      <button type="submit" id="login-submit" class="btn btn-primary btn-block">Sign in</button>
-      <p class="login-error" id="login-error"></p>
-    </form>
-    <p class="login-hint">Staff: use your school username.<br>Parents: sign in with your <b>phone number</b> (issued by the school).<br>Forgot your password? Contact the school office.</p>
+
+    <!-- RIGHT: form panel -->
+    <div class="login-panel">
+      <div class="login-card anim-card">
+        <div class="login-card-head">
+          <h3>Welcome back 👋</h3>
+          <p>Sign in to continue to your dashboard</p>
+        </div>
+        <form id="login-form" autocomplete="on">
+          <div class="field anim-up delay-1">
+            <label for="login-username">Username</label>
+            <div class="input-wrap">
+              <svg><use href="#i-users"/></svg>
+              <input type="text" id="login-username" placeholder="Staff username or parent phone" autocomplete="username" required>
+            </div>
+          </div>
+          <div class="field anim-up delay-2">
+            <label for="login-password">Password</label>
+            <div class="input-wrap">
+              <svg><use href="#i-key"/></svg>
+              <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" required>
+              <button type="button" class="pw-toggle" id="pw-toggle" tabindex="-1" title="Show password">
+                <svg id="pw-eye"><use href="#i-eye"/></svg>
+                <svg id="pw-eye-off" class="hidden"><use href="#i-eye-off"/></svg>
+              </button>
+            </div>
+          </div>
+          <p class="login-error anim-up" id="login-error"></p>
+          <button type="submit" id="login-submit" class="btn btn-primary btn-block anim-up delay-3">
+            <span class="btn-label">Sign in</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+        </form>
+        <div class="login-card-foot anim-up delay-3">
+          <p>Staff: use your school username.<br>Parents: sign in with your <b>phone number</b> issued by the school.</p>
+          <p class="forgot">Forgot your password? Contact the school office.</p>
+        </div>
+      </div>
+      <p class="login-copy anim-up delay-4">© <span id="login-year"></span> ElimuPro · Secure school management</p>
+    </div>
   </div>
 </div>
 
@@ -117,6 +182,7 @@
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></symbol>
   <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
   <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
   <symbol id="i-sms" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></symbol>
@@ -137,6 +203,6 @@
   <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1.5L8 22l2-1.5L12 22l2-1.5L16 22l2-1.5L20 22V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
 </svg>
 
-<script src="/static/js/app.js?v=22"></script>
+<script src="/static/js/app.js?v=24"></script>
 </body>
 </html>

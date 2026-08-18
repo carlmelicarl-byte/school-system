@@ -286,6 +286,17 @@ CREATE TABLE IF NOT EXISTS school_events (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS homework (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  subject_id INTEGER REFERENCES subjects(id),
+  title TEXT NOT NULL,
+  description TEXT,
+  due_date TEXT,
+  assigned_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
@@ -773,6 +784,35 @@ def seed():
     cur.executemany("""INSERT INTO school_events(title,description,event_date,category,audience)
                        VALUES(?,?,?,?,?)""", events)
 
+    # homework / assignments -------------------------------------------------
+    hw_titles = {
+        "Mathematics": ["Exercise: fractions & decimals", "Revision worksheet: algebra", "Times tables practice (10 min daily)"],
+        "English": ["Write a 150-word composition on 'My School'", "Read Chapter 3 and answer questions", "Grammar exercise: tenses"],
+        "Kiswahili": ["Insha: 'Siku ya shule yangu'", "Tunga sentensi 10 kwa wakati uliopita", "Soma hadithi na muhtasari"],
+        "Integrated Science": ["Draw and label the water cycle", "Science project: germinating seeds", "Research: renewable energy"],
+        "Social Studies": ["Map work: locate 10 counties", "Essay: the history of your county", "Current affairs: news summary"],
+        "CRE": ["Memorise and write out Psalm 23", "Write about a parable and its meaning", "Community service reflection"],
+        "Agriculture": ["Describe 5 farm tools and uses", "Visit a garden and report", "Label parts of a plant"],
+        "Business Studies": ["Define 10 business terms", "Mini business plan for a school shop", "Interview a local trader"],
+        "Pre-Technical & Pre-Career Studies": ["Sketch a simple circuit", "Career research: one profession", "Safe use of tools worksheet"],
+        "Health Education": ["Make a food diary for 3 days", "First aid: write the steps", "Poster: hygiene habits"],
+        "Life Skills Education": ["Reflection: how I handled a challenge", "Group discussion notes: teamwork", "Peer support activity"],
+    }
+    hw_rows = []
+    teacher_names = [r["first_name"] + " " + r["last_name"] for r in cur.execute("SELECT first_name, last_name FROM teachers")]
+    for cid in class_ids:
+        gnum = int(grade_of_class[cid].split()[1])
+        class_subj = [r for r in subj_rows if subject_for_grade(r, gnum)]
+        for _ in range(rnd.randint(3, 6)):
+            subj = rnd.choice(class_subj)
+            pool = hw_titles.get(subj["name"], ["Assignment: " + subj["name"]])
+            due = _dt2.date(2026, 8, 11) + _dt2.timedelta(days=rnd.randint(1, 10))
+            hw_rows.append((cid, subj["id"], rnd.choice(pool),
+                            "Complete and submit by the due date. See class teacher for clarifications.",
+                            due.isoformat(), rnd.choice(teacher_names)))
+    cur.executemany("""INSERT INTO homework(class_id,subject_id,title,description,due_date,assigned_by)
+                       VALUES(?,?,?,?,?,?)""", hw_rows)
+
     # announcements ---------------------------------------------------------
     ann = [
         ("Term 3 Opening", "School reopens for Term 3 on Monday 4th May 2026 at 7:30am. Parents are reminded to clear Term 2 balances.", "All", "Admin"),
@@ -856,7 +896,7 @@ def seed():
           f"{len(route_ids)} routes, {len(assign_rows)} transport assignments, "
           f"{len(tt_rows)} timetable slots, {len(parent_users)} guardian accounts, "
           f"{len(book_ids)} books, {len(issue_rows)} library records, "
-          f"{len(conduct_rows)} conduct records, {len(events)} events.")
+          f"{len(conduct_rows)} conduct records, {len(events)} events, {len(hw_rows)} homework assignments.")
 
 if __name__ == "__main__":
     seed()

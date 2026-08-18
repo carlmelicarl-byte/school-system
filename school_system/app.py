@@ -641,11 +641,17 @@ def dashboard():
     upcoming_events = rows_to_dicts(q("""SELECT * FROM school_events WHERE event_date>=? ORDER BY event_date LIMIT 4""", (tdy,)))
     conduct = {"merits": q1("SELECT COUNT(*) c FROM conduct_records WHERE record_type='Merit' AND record_date>=?", (s.get("term_start") or "2026-05-01",))["c"],
                "demerits": q1("SELECT COUNT(*) c FROM conduct_records WHERE record_type='Demerit' AND record_date>=?", (s.get("term_start") or "2026-05-01",))["c"]}
+    due_hw = rows_to_dicts(q("""SELECT hw.*, c.name class_name, s.name subject_name
+                                FROM homework hw
+                                JOIN classes c ON c.id=hw.class_id
+                                LEFT JOIN subjects s ON s.id=hw.subject_id
+                                WHERE hw.due_date>=? ORDER BY hw.due_date LIMIT 5""", (tdy,)))
     return jsonify({
         "settings": s,
         "library": lib,
         "upcoming_events": upcoming_events,
         "conduct": conduct,
+        "due_homework": due_hw,
         "alerts": alerts,
         "activity": feed,
         "counts": {"students": total_students, "teachers": total_teachers,
@@ -2257,6 +2263,130 @@ def idcard_class(cid):
         out.append(d)
     return jsonify({"class": dict(cl) if cl else None, "students": out,
                     "settings": s, "year": year})
+
+# ------------------------------------------------------------------ homework
+@app.route("/api/homework")
+@any_required
+def homework_list():
+    class_id = request.args.get("class_id", type=int)
+    subject_id = request.args.get("subject_id", type=int)
+    status = request.args.get("status", "")
+    rows = q("""SELECT hw.*, c.name class_name, s.name subject_name, s.code subject_code
+                FROM homework hw
+                JOIN classes c ON c.id=hw.class_id
+                LEFT JOIN subjects s ON s.id=hw.subject_id
+                ORDER BY hw.due_date, hw.id DESC""")
+    today = datetime.date.today().isoformat()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if class_id and d["class_id"] != class_id:
+            continue
+        if subject_id and d["subject_id"] != subject_id:
+            continue
+        overdue = d["due_date"] and d["due_date"] < today
+        if status == "Overdue" and not overdue:
+            continue
+        if status == "Upcoming" and overdue:
+            continue
+        d["overdue"] = bool(overdue)
+        out.append(d)
+    return jsonify(out)
+
+@app.route("/api/homework", methods=["POST"])
+@role_required("admin", "teacher")
+def homework_add():
+    d = request.get_json(force=True) or {}
+    if not d.get("title") or not d.get("class_id"):
+        return jsonify({"error": "title and class_id required"}), 400
+    hid = exe("""INSERT INTO homework(class_id,subject_id,title,description,due_date,assigned_by)
+                 VALUES(?,?,?,?,?,?)""",
+              (d["class_id"], d.get("subject_id"), d["title"].strip(),
+               d.get("description"), d.get("due_date"), acting_name()))
+    log_activity("Homework assigned", f"{d['title'][:40]} to class #{d['class_id']}")
+    return jsonify({"id": hid})
+
+@app.route("/api/homework/<int:hid>", methods=["PUT"])
+@role_required("admin", "teacher")
+def homework_update(hid):
+    d = request.get_json(force=True) or {}
+    fields = ["class_id", "subject_id", "title", "description", "due_date"]
+    sets = [f for f in fields if f in d]
+    if sets:
+        exe("UPDATE homework SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?",
+            tuple(d[f] for f in sets) + (hid,))
+    log_activity("Homework updated", f"#{hid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/homework/<int:hid>", methods=["DELETE"])
+@role_required("admin", "teacher")
+def homework_delete(hid):
+    exe("DELETE FROM homework WHERE id=?", (hid,))
+    log_activity("Homework removed", f"#{hid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/guardian/homework")
+@guardian_required
+def guardian_homework():
+    sid = request.args.get("student_id", type=int)
+    if not ensure_guardian(sid):
+        return jsonify({"error": "Forbidden"}), 403
+    cl = student_class(sid)
+    rows = q("""SELECT hw.*, s.name subject_name, s.code subject_code
+                FROM homework hw
+                LEFT JOIN subjects s ON s.id=hw.subject_id
+                WHERE hw.class_id=?
+                ORDER BY hw.due_date""", (cl["id"] if cl else -1,))
+    today = datetime.date.today().isoformat()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["overdue"] = bool(d["due_date"] and d["due_date"] < today)
+        out.append(d)
+    return jsonify(out)
+
+# ------------------------------------------------------------------ excel export
+@app.route("/api/export/xlsx", methods=["POST"])
+@any_required
+def export_xlsx():
+    """Generic Excel export: {filename, headers:[...], rows:[[...]]} -> .xlsx download."""
+    d = request.get_json(force=True) or {}
+    filename = (d.get("filename") or "export").replace(".xlsx", "") + ".xlsx"
+    headers = d.get("headers") or []
+    rows = d.get("rows") or []
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    if headers:
+        ws.append(headers)
+        hfill = PatternFill("solid", fgColor="14532D")
+        for c in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=c)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = hfill
+            cell.alignment = Alignment(horizontal="center")
+    for row in rows:
+        ws.append(["" if v is None else v for v in row])
+    # auto width
+    for c in range(1, len(headers) + 1):
+        mx = len(str(headers[c - 1])) if headers else 10
+        for r in range(2, min(len(rows) + 2, 60)):
+            v = str(ws.cell(row=r, column=c).value or "")
+            mx = max(mx, len(v))
+        ws.column_dimensions[get_column_letter(c)].width = min(mx + 2, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    from flask import send_file
+    resp = send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name=filename)
+    return resp
 
 # ------------------------------------------------------------------ library
 @app.route("/api/library/books")
