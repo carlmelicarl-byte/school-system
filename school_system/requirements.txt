@@ -1,0 +1,5 @@
+# ElimuPro production dependencies
+# Install with:  pip install -r requirements.txt
+Flask>=3.0,<4
+waitress>=3.0.0
+gunicorn>=22.0.0; sys_platform != "win32"
