@@ -220,28 +220,48 @@ function timeAgo(iso) {
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 // login password visibility toggle
-const pwToggle = $("#pw-toggle");
+const pwToggle = document.getElementById("pw-toggle");
 if (pwToggle) pwToggle.addEventListener("click", () => {
-  const inp = $("#login-password");
+  const inp = document.getElementById("login-password");
   const show = inp.type === "password";
   inp.type = show ? "text" : "password";
-  $("#pw-eye").classList.toggle("hidden", show);
-  $("#pw-eye-off").classList.toggle("hidden", !show);
+  document.getElementById("pw-eye").classList.toggle("hidden", show);
+  document.getElementById("pw-eye-off").classList.toggle("hidden", !show);
+  inp.focus();
 });
-
-// animated particles on the login screen
+// caps lock warning
+const pwInp = document.getElementById("login-password");
+if (pwInp) pwInp.addEventListener("keyup", (e) => {
+  const warn = document.getElementById("caps-warn");
+  if (warn) warn.classList.toggle("hidden", !e.getModifierState("CapsLock"));
+});
+// remember me: persist username
+const rememberBox = document.getElementById("remember-me");
+try {
+  if (localStorage.getItem("ep_remember_user")) {
+    if (rememberBox) rememberBox.checked = true;
+    document.getElementById("login-username").value = localStorage.getItem("ep_remember_user");
+  }
+} catch (e) {}
+function saveRemember(username) {
+  try {
+    if (rememberBox && rememberBox.checked) localStorage.setItem("ep_remember_user", username);
+    else localStorage.removeItem("ep_remember_user");
+  } catch (e) {}
+}
 function spawnParticles() {
-  const wrap = $("#login-particles");
-  if (!wrap) return;
-  if (wrap.childElementCount > 0) return;   // already spawned
-  const n = 26;
+  const wrap = document.getElementById("floaters");
+  if (!wrap || wrap.childElementCount > 0) return;
+  const n = 24;
   for (let i = 0; i < n; i++) {
     const s = document.createElement("span");
     const size = 2 + Math.random() * 4;
-    s.style.cssText = `left:${Math.random() * 100}%;width:${size}px;height:${size}px;animation-duration:${9 + Math.random() * 12}s;animation-delay:${-Math.random() * 14}s;opacity:${.3 + Math.random() * .6}`;
+    s.style.cssText = `left:${Math.random() * 100}%;width:${size}px;height:${size}px;` +
+      `animation-duration:${9 + Math.random() * 12}s;animation-delay:${-Math.random() * 14}s;opacity:${.25 + Math.random() * .5}`;
     wrap.appendChild(s);
   }
 }
+try { spawnParticles(); } catch (e) { console.error(e); }
 try { spawnParticles(); } catch (e) { console.error(e); }
 function modal(html, wide = false) {
   $("#modal-box").innerHTML = html;
@@ -384,118 +404,116 @@ function renderNav() {
    LOGIN / BOOT
    ============================================================ */
 function showLogin() {
-  $("#app").classList.add("hidden");
-  $("#login-screen").classList.remove("hidden");
-  refreshLoginBrand();
-  try { spawnParticles(); } catch (e) { console.error(e); }
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("login-screen").classList.remove("hidden");
+  paintLoginBrand();
+  startTyping();
+  try { spawnParticles(); } catch (e) {}
+  setTimeout(() => { const u = document.getElementById("login-username"); if (u) u.focus(); }, 350);
 }
-// fill the login brand panel with school info + live counts
-async function refreshLoginBrand() {
-  const name = $("#login-school-name"), motto = $("#login-school-motto"),
-        statS = $("#login-stat-students"), statT = $("#login-stat-teachers"), statM = $("#login-stat-modules");
-  if (name) name.textContent = state.settings ? state.settings.school_name : "ElimuPro";
-  if (motto) motto.textContent = state.settings ? (state.settings.school_motto || "School Management System") : "School Management System";
-  if ($("#login-year")) $("#login-year").textContent = new Date().getFullYear();
-  // NEVER use the api() helper here: when logged out it returns 401 and would
-  // re-trigger showLogin() -> refreshLoginBrand() -> 401 -> ... infinite loop.
-  // Use a raw fetch that cannot touch the auth flow, and only fetch stats
-  // when we actually have a token (otherwise show placeholders).
-  if (!authToken) {
-    if (statS) statS.textContent = "—";
-    if (statT) statT.textContent = "—";
-    if (statM) statM.textContent = 18;
-    return;
-  }
-  try {
-    const res = await fetch("/api/dashboard", {
-      headers: { Authorization: "Bearer " + authToken },
-    });
-    if (res.ok) {
-      const d = await res.json();
-      if (statS) statS.textContent = d.counts.students;
-      if (statT) statT.textContent = d.counts.teachers;
-      if (statM) statM.textContent = 18;
-    } else {
-      if (statS) statS.textContent = "—";
-      if (statT) statT.textContent = "—";
-      if (statM) statM.textContent = 18;
-    }
-  } catch (e) {
-    if (statS) statS.textContent = "—";
-    if (statT) statT.textContent = "—";
-    if (statM) statM.textContent = 18;
-  }
+/* Paint the brand panel from settings only (NO network calls — the login page
+   must never depend on auth: a 401 here used to cause an infinite loop). */
+function paintLoginBrand() {
+  const s = state.settings || {};
+  const nameEl = document.getElementById("login-school-name");
+  const mottoEl = document.getElementById("login-school-motto");
+  const footEl = document.getElementById("bp-foot-name");
+  const yrEl = document.getElementById("login-year");
+  if (nameEl) nameEl.textContent = s.school_name || "ElimuPro";
+  if (mottoEl) mottoEl.textContent = s.school_motto || "School Management System";
+  if (footEl) footEl.textContent = s.school_name || "ElimuPro";
+  if (yrEl) yrEl.textContent = new Date().getFullYear();
 }
-function enterApp() {
-  try {
-  $("#login-screen").classList.add("hidden");
-  $("#app").classList.remove("hidden");
-  $("#user-name").textContent = state.user.name;
-  $("#user-role").textContent = { admin: "Administrator", teacher: "Teacher", accounts: "Accounts", guardian: "Parent", librarian: "Librarian", superadmin: "Platform Admin" }[state.user.role] || state.user.role;
-  $("#user-avatar").innerHTML = state.user.profile_pic
-    ? `<img src="${esc(state.user.profile_pic)}" alt="">`
-    : esc(initials(state.user.name));
-  $("#sidebar-school").textContent = state.settings.school_name;
-  $("#term-badge").textContent = state.settings.current_term + " · " + state.settings.academic_year;
-  $("#version-tag").textContent = "ElimuPro · v2.7 · " + new Date().getFullYear();
-  updateNetUI();
-  document.title = state.settings.school_name + " — ElimuPro";
-  applyAppearance();
-  renderNav();
-  openView(state.user.role === "guardian" ? "gdash" : state.user.role === "superadmin" ? "schools" : "dashboard");
-  } catch (err) {
-    console.error("enterApp error", err);
-    // never leave the user stuck: fall back to showing the dashboard shell
-    try { openView("dashboard"); } catch (e) {}
-  }
+/* typewriter headline */
+const TYPE_LINES = [
+  "Students, marks, fees & reports — all in one calm place.",
+  "Share results with parents in a single click.",
+  "Transport, library, payroll and homework too.",
+  "Works offline — syncs when you are back online.",
+];
+let typingStarted = false;
+function startTyping() {
+  if (typingStarted) return;
+  typingStarted = true;
+  const el = document.getElementById("type-line");
+  if (!el) return;
+  let li = 0, ci = 0, deleting = false;
+  (function tick() {
+    const line = TYPE_LINES[li];
+    el.textContent = line.slice(0, ci);
+    if (!deleting && ci < line.length) { ci++; setTimeout(tick, 34); }
+    else if (!deleting) { deleting = true; setTimeout(tick, 1800); }
+    else if (ci > 0) { ci--; setTimeout(tick, 14); }
+    else { deleting = false; li = (li + 1) % TYPE_LINES.length; setTimeout(tick, 300); }
+  })();
 }
+
 async function doLogin(username, password) {
-  $("#login-error").textContent = "";
-  const card = $(".login-card");
-  card.classList.remove("shake");
-  const btn = $("#login-submit");
-  if (btn) {
-    btn.disabled = true;
-    const lbl = $(".btn-label", btn), spin = $(".btn-spinner", btn);
-    if (lbl) lbl.textContent = "Signing in…";
-    if (spin) spin.classList.remove("hidden");
-  }
+  const errEl = document.getElementById("login-error");
+  const card = document.getElementById("login-card");
+  if (errEl) errEl.textContent = "";
+  card.classList.remove("shake", "success");
+  const btn = document.getElementById("login-submit");
+  const lbl = btn ? btn.querySelector(".btn-label") : null;
+  const spin = btn ? btn.querySelector(".btn-spinner") : null;
+  const chk = btn ? btn.querySelector(".btn-check") : null;
+  if (btn) btn.disabled = true;
+  if (lbl) lbl.textContent = "Signing in…";
+  if (spin) spin.classList.remove("hidden");
   try {
     const u = await api("/api/login", { method: "POST", body: { username, password } });
     authToken = u.token || null;
     try { if (authToken) localStorage.setItem("ep_token", authToken); } catch (e) {}
     state.user = u;
-    state.settings = await api("/api/settings");
-    enterApp();
+    // a secondary fetch (settings) must NEVER block entering the app —
+    // that used to "log in but never reach the dashboard".
+    try { state.settings = await api("/api/settings"); } catch (e) { state.settings = state.settings || {}; }
+    saveRemember(username);
+    if (spin) spin.classList.add("hidden");
+    if (chk) chk.classList.remove("hidden");
+    if (lbl) lbl.textContent = "Welcome!";
+    card.classList.add("success");
+    setTimeout(() => { enterApp(); }, 500);
   } catch (err) {
-    // wrong username / password — echo it clearly and shake the card
-    $("#login-error").textContent = "❌ " + err.message;
-    $("#login-password").value = "";
-    $("#login-password").focus();
-    void card.offsetWidth; // restart the animation
+    if (errEl) errEl.textContent = "❌ " + (err.message || "Login failed");
+    const pin = document.getElementById("login-password");
+    if (pin) { pin.value = ""; pin.focus(); }
+    if (spin) spin.classList.add("hidden");
+    if (lbl) lbl.textContent = "Sign in";
+    void card.offsetWidth;
     card.classList.add("shake");
-  }
-  finally {
-    if (btn) {
-      btn.disabled = false;
-      const lbl = $(".btn-label", btn), spin = $(".btn-spinner", btn);
-      if (lbl) lbl.textContent = "Sign in";
-      if (spin) spin.classList.add("hidden");
-    }
+    if (btn) btn.disabled = false;
   }
 }
+
 function handleLoginSubmit(e) {
   e.preventDefault();
-  if (!e.defaultPrevented) e.preventDefault();
-  doLogin($("#login-username").value.trim(), $("#login-password").value);
+  doLogin(document.getElementById("login-username").value.trim(),
+          document.getElementById("login-password").value);
 }
-const loginForm = $("#login-form");
+const loginForm = document.getElementById("login-form");
 if (loginForm) loginForm.addEventListener("submit", handleLoginSubmit);
 // safety net: even if the direct binding failed, catch the submit at document level
 document.addEventListener("submit", (e) => {
   const f = e.target && e.target.id;
   if (f === "login-form" && !e.defaultPrevented) handleLoginSubmit(e);
 }, true);
+// remember me persistence
+function saveRemember(username) {
+  try {
+    const rb = document.getElementById("remember-me");
+    if (rb && rb.checked) localStorage.setItem("ep_remember_user", username);
+    else localStorage.removeItem("ep_remember_user");
+  } catch (e) {}
+}
+// quick demo chips
+document.querySelectorAll(".demo-chips button").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.getElementById("login-username").value = b.dataset.user;
+    document.getElementById("login-password").value = b.dataset.pass;
+    doLogin(b.dataset.user, b.dataset.pass);
+  });
+});
 
 /* ---------------- forgot password flow ---------------- */
 let fgStep = 1;   // 1 = enter username, 2 = enter code + new password
