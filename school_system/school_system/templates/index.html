@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ElimuPro — School Management System</title>
+<link rel="stylesheet" href="/static/css/style.css?v=29">
+</head>
+<body>
+
+<!-- offline banner -->
+<div id="offline-banner" class="offline-banner hidden">
+  <svg style="width:15px;height:15px"><use href="#i-wifi"/></svg>
+  <span><b>Offline mode</b> — you're viewing saved data. Changes you make are stored locally and will <b>sync automatically</b> when you're back online.</span>
+</div>
+
+<!-- ======================= LOGIN ======================= -->
+<div id="login-screen" class="login-screen hidden">
+  <!-- animated background -->
+  <div class="login-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="login-grid-overlay"></div>
+    <div class="login-particles" id="login-particles"></div>
+  </div>
+
+  <div class="login-shell">
+    <!-- LEFT: brand panel -->
+    <div class="login-brand">
+      <div class="brand-top anim-up">
+        <div class="login-logo-badge">
+          <svg viewBox="0 0 48 48" width="30" height="30"><path fill="currentColor" d="M24 4 3 14l21 10 15-7.1V30h4V14L24 4z"/><path fill="currentColor" opacity=".65" d="M11 25.5V34c0 3.9 5.8 8 13 8s13-4.1 13-8v-8.5L24 30l-13-4.5z"/></svg>
+        </div>
+        <div>
+          <h1 id="login-school-name">ElimuPro</h1>
+          <p class="tagline" id="login-school-motto">School Management System</p>
+        </div>
+      </div>
+
+      <div class="brand-hero anim-up delay-1">
+        <h2 id="login-hero-line">Manage your entire school,<br><span>effortlessly.</span></h2>
+        <p>Students · Academics · Finance · Transport · Library · Parent portal — all in one clean, secure platform built for Kenyan schools.</p>
+      </div>
+
+      <div class="brand-features anim-up delay-2">
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>CBC curriculum &amp; E/M/A/B grading</span></div>
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>M-PESA-ready fee management</span></div>
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>Parent portal with results &amp; balances</span></div>
+        <div class="bf-item"><svg><use href="#i-check"/></svg><span>Report cards, ID cards &amp; receipts</span></div>
+      </div>
+
+      <div class="brand-foot anim-up delay-3">
+        <div class="bf-stat"><b id="login-stat-students">—</b><small>Students</small></div>
+        <div class="bf-stat"><b id="login-stat-teachers">—</b><small>Teachers</small></div>
+        <div class="bf-stat"><b id="login-stat-modules">—</b><small>Modules</small></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: form panel -->
+    <div class="login-panel">
+      <div class="login-card anim-card">
+        <div class="login-card-head">
+          <h3>Welcome back 👋</h3>
+          <p>Sign in to continue to your dashboard</p>
+        </div>
+        <form id="login-form" autocomplete="on">
+          <div class="field anim-up delay-1">
+            <label for="login-username">Username</label>
+            <div class="input-wrap">
+              <svg><use href="#i-users"/></svg>
+              <input type="text" id="login-username" placeholder="Staff username or parent phone" autocomplete="username" required>
+            </div>
+          </div>
+          <div class="field anim-up delay-2">
+            <label for="login-password">Password</label>
+            <div class="input-wrap">
+              <svg><use href="#i-key"/></svg>
+              <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" required>
+              <button type="button" class="pw-toggle" id="pw-toggle" tabindex="-1" title="Show password">
+                <svg id="pw-eye"><use href="#i-eye"/></svg>
+                <svg id="pw-eye-off" class="hidden"><use href="#i-eye-off"/></svg>
+              </button>
+            </div>
+          </div>
+          <p class="login-error anim-up" id="login-error"></p>
+          <button type="submit" id="login-submit" class="btn btn-primary btn-block anim-up delay-3">
+            <span class="btn-label">Sign in</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+          <p class="login-forgot anim-up delay-3"><a href="#" id="forgot-link">Forgot your password?</a></p>
+        </form>
+
+        <!-- forgot password flow (swaps with the form) -->
+        <div id="forgot-area" class="hidden">
+          <div class="login-card-head"><h3>Reset password</h3>
+            <p id="fg-sub">Enter your username (staff) or phone number (parent) and we'll send you a reset code.</p></div>
+          <div class="field">
+            <label for="fg-username">Username / phone number</label>
+            <div class="input-wrap"><svg><use href="#i-users"/></svg>
+              <input type="text" id="fg-username" placeholder="Staff username or parent phone" autocomplete="off"></div>
+          </div>
+          <div id="fg-step2" class="hidden">
+            <div class="field">
+              <label for="fg-code">Reset code</label>
+              <div class="input-wrap"><svg><use href="#i-key"/></svg>
+                <input type="text" id="fg-code" inputmode="numeric" placeholder="6-digit code" maxlength="6"></div>
+            </div>
+            <div id="fg-demo" class="demo-code hidden">Demo: your code is <b id="fg-democode"></b></div>
+            <div class="field">
+              <label for="fg-pass">New password</label>
+              <div class="input-wrap"><svg><use href="#i-key"/></svg>
+                <input type="password" id="fg-pass" placeholder="At least 6 characters"></div>
+            </div>
+            <div class="field">
+              <label for="fg-pass2">Confirm new password</label>
+              <div class="input-wrap"><svg><use href="#i-key"/></svg>
+                <input type="password" id="fg-pass2" placeholder="Repeat the password"></div>
+            </div>
+          </div>
+          <p class="login-error" id="fg-error"></p>
+          <button class="btn btn-primary btn-block" id="fg-next">Send reset code</button>
+          <p class="login-card-foot"><span class="forgot" id="fg-back" style="cursor:pointer">← Back to sign in</span></p>
+        </div>
+
+        <div class="login-card-foot anim-up delay-3">
+          <p>Staff: use your school username.<br>Parents: sign in with your <b>phone number</b> issued by the school.</p>
+          <p class="forgot">Contact the school office if you need help.</p>
+        </div>
+      </div>
+      <p class="login-copy anim-up delay-4">© <span id="login-year"></span> ElimuPro · Secure school management</p>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= APP SHELL ======================= -->
+<div id="app" class="app hidden">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 48 48" width="36" height="36"><path fill="#4ade80" d="M24 4 3 14l21 10 15-7.1V30h4V14L24 4z"/><path fill="#166534" d="M11 25.5V34c0 3.9 5.8 8 13 8s13-4.1 13-8v-8.5L24 30l-13-4.5z"/></svg>
+      <div>
+        <strong>ElimuPro</strong>
+        <span id="sidebar-school">Greenfield Academy</span>
+      </div>
+    </div>
+    <nav class="nav" id="nav">
+      <button class="nav-item active" data-view="dashboard"><svg><use href="#i-grid"/></svg>Dashboard</button>
+      <div class="nav-group">Academics</div>
+      <button class="nav-item" data-view="students"><svg><use href="#i-users"/></svg>Students</button>
+      <button class="nav-item" data-view="teachers"><svg><use href="#i-teacher"/></svg>Teachers</button>
+      <button class="nav-item" data-view="classes"><svg><use href="#i-class"/></svg>Classes</button>
+      <button class="nav-item" data-view="subjects"><svg><use href="#i-book"/></svg>Subjects</button>
+      <button class="nav-item" data-view="exams"><svg><use href="#i-exam"/></svg>Exams &amp; Marks</button>
+      <button class="nav-item" data-view="analytics"><svg><use href="#i-chart"/></svg>Analytics</button>
+      <button class="nav-item" data-view="reportcard"><svg><use href="#i-report"/></svg>Report Cards</button>
+      <button class="nav-item" data-view="timetable"><svg><use href="#i-timetable"/></svg>Timetable</button>
+      <div class="nav-group">Operations</div>
+      <button class="nav-item" data-view="finance"><svg><use href="#i-money"/></svg>Finance &amp; Fees</button>
+      <button class="nav-item" data-view="attendance"><svg><use href="#i-calendar"/></svg>Attendance</button>
+      <button class="nav-item" data-view="communication"><svg><use href="#i-message"/></svg>Communication</button>
+      <button class="nav-item" data-view="settings"><svg><use href="#i-gear"/></svg>Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="version-tag" id="version-tag">ElimuPro</div>
+      <button class="nav-item" id="logout-btn"><svg><use href="#i-logout"/></svg>Log out</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger"><svg><use href="#i-menu"/></svg></button>
+      <div class="topbar-title">
+        <h2 id="page-title">Dashboard</h2>
+        <p id="page-subtitle">Overview of the school</p>
+      </div>
+      <div class="topbar-right">
+        <span class="net-pill online" id="net-pill" title="Connection status"><span class="net-dot"></span> Online<span id="net-pending"></span></span>
+        <span class="term-badge" id="term-badge">Term 3 · 2026</span>
+        <div class="user-chip" id="user-chip" title="My account">
+          <span class="avatar" id="user-avatar">A</span>
+          <div><strong id="user-name">Administrator</strong><small id="user-role">admin</small></div>
+        </div>
+      </div>
+    </header>
+    <main class="content" id="view">
+      <div class="loader"><div class="spinner"></div><p>Loading…</p></div>
+    </main>
+  </div>
+</div>
+
+<!-- toast -->
+<div id="toast-wrap"></div>
+
+<!-- modal -->
+<div id="modal-backdrop" class="modal-backdrop hidden">
+  <div class="modal" id="modal-box"></div>
+</div>
+
+<!-- ======================= SVG SPRITE ======================= -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-teacher" viewBox="0 0 24 24"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/><path d="M22 10v6"/></symbol>
+  <symbol id="i-class" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-8h6v8"/><path d="M9 10h.01M15 10h.01"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+  <symbol id="i-exam" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M14 3h2a2 2 0 0 1 2 2v2"/><path d="M9 12h6M9 16h4"/><path d="M15 3l6 6-7 7H8v-6l7-7z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></symbol>
+  <symbol id="i-report" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-money" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M9.5 8.5c0-1 1.1-1.5 2.5-1.5s2.5.5 2.5 1.5-1 1.4-2.5 1.6c-1.6.2-2.5 1-2.5 2s1 1.6 2.5 1.6 2.5-.5 2.5-1.5"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+  <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+  <symbol id="i-sms" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-bus" viewBox="0 0 24 24"><path d="M4 17V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v11"/><path d="M2 17h20v3H2z"/><path d="M8 7h8v4H8z"/><circle cx="7.5" cy="17.5" r="1.2"/><circle cx="16.5" cy="17.5" r="1.2"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 1 10-10c0 2-1.5 3-3 3h-2a2 2 0 0 0-1.5 3.3c.6.7.4 1.7-.5 1.7H12z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/><circle cx="17.5" cy="11.5" r="1"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2"/><path d="M17 6l3 3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+  <symbol id="i-upload2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></symbol>
+</svg>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/><path d="M14 15h4"/></symbol>
+  <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14M21 5v14"/><path d="M5 8v8M9 8v8M13 8v8M17 8v8"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></symbol>
+  <symbol id="i-timetable" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="15" r="2.5"/><path d="M12 13.5V15l1.5 1"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1.5L8 22l2-1.5L12 22l2-1.5L16 22l2-1.5L20 22V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
+</svg>
+
+<script src="/static/js/app.js?v=29"></script>
+</body>
+</html>

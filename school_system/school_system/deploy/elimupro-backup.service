@@ -1,0 +1,8 @@
+[Unit]
+Description=ElimuPro daily database backup
+
+[Service]
+Type=oneshot
+User=elimupro
+WorkingDirectory=/opt/elimupro
+ExecStart=/opt/elimupro/venv/bin/python3 backup.py --keep 30

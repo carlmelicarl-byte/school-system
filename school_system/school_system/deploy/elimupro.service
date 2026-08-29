@@ -1,0 +1,28 @@
+# ============================================================
+# ElimuPro — systemd service (Linux cloud or on-premises server)
+# Place in: /etc/systemd/system/elimupro.service
+# Then:     sudo systemctl daemon-reload
+#           sudo systemctl enable --now elimupro
+# Logs:     journalctl -u elimupro -f
+# ============================================================
+[Unit]
+Description=ElimuPro School Management System
+After=network.target
+
+[Service]
+Type=simple
+# --- change 'elimupro' to your system username, and paths to your install ---
+User=elimupro
+WorkingDirectory=/opt/elimupro
+ExecStart=/opt/elimupro/venv/bin/gunicorn -w 2 -b 127.0.0.1:8000 wsgi:application
+Restart=always
+RestartSec=5
+
+# Production hardening
+Environment=PYTHONUNBUFFERED=1
+# --- set a strong random secret, e.g.  python3 -c "import secrets;print(secrets.token_hex(32))" ---
+Environment=ELIMUPRO_SECRET=REPLACE_WITH_A_LONG_RANDOM_STRING
+Environment=ELIMUPRO_HTTPS=1
+
+[Install]
+WantedBy=multi-user.target
