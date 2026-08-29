@@ -155,6 +155,14 @@ Parent accounts are created automatically from student records: username = the p
 - **Events calendar month view** — switch between the list and a month grid on the Events page
 - **SMS message templates** — fee reminder, results-out, attendance alert, meeting notice, holiday notice — prefill the announcement box instantly
 
+### 🏫 Multi-school tenancy *(sell to many schools on one server)*
+- **Platform admin** — `superadmin` / `admin123` at the root URL → **Schools** page: list every school (with live student/teacher counts), **add a school** (sample data or a fresh empty school with a custom admin login), **disable** unpaid schools (blocks their logins instantly)
+- **Full isolation** — each school = its own database (`data/school_<slug>.db` + `meta.db` registry): data, branding, logins and uploads never cross between schools
+- **Subdomain routing** — schools log in at `<slug>.yourdomain.com`, so every school can use `admin`/`admin123` without clashes; per-school branding is automatic
+- **One-click client launch** — `python3 launch_school.py --name "..." --slug ... [--empty --motto ... --theme ... --logo ...]` creates + brands a school, generates a strong admin password, and writes a client handover sheet with a go-live checklist
+- **Backups cover every school** — `backup.py` backs up the registry + each school DB
+- Wildcard DNS + HTTPS + Render instructions in DEPLOY.md
+
 ### 📶 Offline & online mode (auto-sync)
 - A **service worker** caches the app shell and your data, so the system keeps working **offline** — you can view everything you've already loaded (students, results, fees, timetables…)
 - A live **Online / Offline pill** in the top bar and an offline banner tell you the connection state

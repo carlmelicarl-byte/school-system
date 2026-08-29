@@ -12,9 +12,10 @@ import sys
 
 from waitress import serve
 
-from app import app
+from app import app, boot
 
 if __name__ == "__main__":
+    boot()
     port = int(os.environ.get("PORT", "8000"))
     host = os.environ.get("HOST", "0.0.0.0")
     print("=" * 58)

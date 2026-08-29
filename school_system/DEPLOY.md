@@ -114,6 +114,55 @@ it's only on the local network — visit `http://<school-pc-ip>:8000`).
 
 ---
 
+## 🏫 Multi-school (sell to several schools from one server)
+
+The platform supports **multiple schools on one installation**, each fully isolated:
+
+- **Platform admin** — log in at the root domain with `superadmin` / `admin123` →
+  **Schools** page lists every school and lets you **add a school** (sample data or a
+  fresh empty school, with a custom admin username/password).
+- **Each school = its own database** (`data/school_<slug>.db` + a `meta.db` registry),
+  so schools can never see each other's data.
+- **Subdomain routing** — each school logs in through its own address:
+  `greenfield.yourdomain.com`, `kisii-high.yourdomain.com`… every school can use
+  `admin`/`admin123` without clashes.
+- **Per-school branding** is automatic (name, logo, theme live in each school's DB).
+- **Disable a school** (unpaid subscription?) → all its logins are blocked instantly.
+- **Backups cover every school** — `backup.py` backs up `meta.db` + each school DB.
+- **One-click launch** — `python3 launch_school.py --name "..." --slug ... [--empty --motto ... --logo ...]`
+  creates + brands a school, generates a strong admin password, and writes a client
+  handover sheet (`launch_sheets/<slug>_handover.txt`).
+
+### Subdomain setup (cloud)
+1. DNS: add a **wildcard record** `*.yourdomain.com` → your server IP.
+2. nginx: `server_name *.yourdomain.com;` with a wildcard Let's Encrypt cert
+   (`certbot --nginx -d yourdomain.com -d *.yourdomain.com`).
+3. New schools created in the **Schools** page immediately work at `<slug>.yourdomain.com`.
+
+### Local testing without a domain
+Use the `Host` header or `/etc/hosts`:
+```
+127.0.0.1  greenfield.localhost kisii-high.localhost
+```
+then visit `http://kisii-high.localhost:8000`.
+
+## ☁️ Render.com quickstart (hosted web service)
+
+Render-ready: a fresh deploy auto-initialises the platform (`superadmin`, demo school).
+
+| Setting | Value |
+|---|---|
+| **Build command** | `pip install -r requirements.txt` |
+| **Start command** | `gunicorn -w 2 -b 0.0.0.0:$PORT wsgi:application` |
+| **Health check** | `/` |
+
+1. **Super admin**: open your Render URL and log in with `superadmin` / `admin123`.
+2. **⚠️ Persistent Disk (REQUIRED)**: Render's filesystem is ephemeral — add a
+   **Disk** mounted at **`/opt/render/project/src`** (1 GB on free tier) or every
+   redeploy wipes databases/uploads.
+3. **Env vars**: `ELIMUPRO_SECRET` (long random string) and `ELIMUPRO_HTTPS=1`.
+4. **Backups**: add a Render **Cron Job** running `python3 backup.py --keep 30` daily.
+
 ## 3. Security notes (what changed from the demo)
 
 - **Password hashing**: scrypt (salted, memory-hard) — legacy SHA-256 hashes are

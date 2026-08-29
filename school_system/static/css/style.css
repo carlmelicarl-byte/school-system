@@ -106,6 +106,14 @@ svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 @keyframes animCard{to{opacity:1;transform:none}}
 .login-card.shake{animation:shake .45s ease}
 
+.login-forgot{text-align:center;margin-top:14px}
+.login-forgot a{color:var(--green-dark);font-weight:600;font-size:12.5px;text-decoration:none}
+.login-forgot a:hover{text-decoration:underline}
+#forgot-area h3{font-size:19px}
+.demo-code{background:var(--green-50);border:1px solid var(--green-100);color:var(--green-dark);
+  border-radius:9px;padding:9px 12px;font-size:12.5px;margin-bottom:14px;text-align:center}
+#forgot-area .field{margin-bottom:14px}
+#fg-error{min-height:0}
 /* responsive: stack panels on small screens */
 @media(max-width:860px){
   .login-shell{flex-direction:column;max-width:440px;min-height:0}
@@ -615,4 +623,11 @@ body.print-mode #app{display:none!important}
   .modal-body{max-height:none!important;overflow:visible!important;padding:0!important;background:#fff!important}
   #receipt-sheet{border:0!important;max-width:620px!important;margin:0 auto!important}
   .no-print{display:none!important}
+}
+
+#payslip-print-area{display:none}
+@media print{
+  body.print-mode #payslip-print-area{display:block!important}
+  body.print-mode #payslip-print-area .idc-pair{display:block;break-inside:avoid;page-break-inside:avoid;margin-bottom:14px}
+  body.print-mode #payslip-print-area .receipt-sheet{max-width:620px;margin:0 auto}
 }

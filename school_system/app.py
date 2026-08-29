@@ -23,6 +23,123 @@ from flask import (Flask, g, jsonify, request, session, send_from_directory,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "school.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+META_DB = os.path.join(BASE_DIR, "meta.db")
+
+# ------------------------------------------------------------------ multi-school
+def open_meta():
+    os.makedirs(DATA_DIR, exist_ok=True)
+    m = sqlite3.connect(META_DB)
+    m.row_factory = sqlite3.Row
+    m.execute("""CREATE TABLE IF NOT EXISTS schools (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        db_path TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        active INTEGER DEFAULT 1)""")
+    m.execute("""CREATE TABLE IF NOT EXISTS superusers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT,
+        active INTEGER DEFAULT 1)""")
+    return m
+
+def list_schools():
+    m = open_meta()
+    rows = m.execute("SELECT * FROM schools ORDER BY name").fetchall()
+    m.close()
+    return [dict(r) for r in rows]
+
+def school_by_slug(slug):
+    m = open_meta()
+    r = m.execute("SELECT * FROM schools WHERE slug=?", (slug,)).fetchone()
+    m.close()
+    return dict(r) if r else None
+
+def tenant_db_path(slug):
+    s = school_by_slug(slug)
+    if not s or not s.get("active"):
+        return None
+    p = s["db_path"]
+    if not os.path.isabs(p):
+        p = os.path.join(BASE_DIR, p)
+    return p if os.path.exists(p) else None
+
+def find_user_global(username):
+    m = open_meta()
+    su = m.execute("SELECT * FROM superusers WHERE username=? AND active=1", (username,)).fetchone()
+    m.close()
+    if su:
+        return dict(su), "super"
+    for sch in list_schools():
+        if not sch.get("active"):
+            continue
+        try:
+            c = sqlite3.connect(sch["db_path"])
+            c.row_factory = sqlite3.Row
+            u = c.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
+            c.close()
+        except Exception:
+            continue
+        if u:
+            return dict(u), sch["slug"]
+    return None, None
+
+def ensure_platform():
+    """On first run create the registry, super admin and a demo school so the
+    platform is never empty. Existing data is never touched."""
+    import hashlib as _hl
+    m = open_meta()
+    su = m.execute("SELECT id FROM superusers WHERE username='superadmin'").fetchone()
+    if not su:
+        salt = secrets.token_hex(16)
+        h = _hl.scrypt(b"admin123", salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
+        m.execute("INSERT INTO superusers(username,password_hash,full_name) VALUES(?,?,?)",
+                  ("superadmin", f"scrypt${salt}${h.hex()}", "Platform Administrator"))
+        m.commit()
+    demos = m.execute("SELECT slug, db_path FROM schools WHERE slug='greenfield'").fetchall()
+    m.close()
+    main_db = os.path.join(BASE_DIR, "school.db")
+    if not os.path.exists(main_db):
+        import seed as _seed
+        print("[init] Creating demo school database...")
+        _seed.seed_db(main_db, school_name="Greenfield Academy", sample=True,
+                      admin_user="admin", admin_pass="admin123")
+        _seed.register_school("greenfield", "Greenfield Academy", "school.db")
+    elif not demos:
+        import seed as _seed
+        _seed.register_school("greenfield", "Greenfield Academy", "school.db")
+
+def _host_slug():
+    if getattr(g, "_host_slug", None) is not None:
+        return g._host_slug
+    host = (request.host or "").split(":")[0].lower()
+    parts = host.split(".")
+    slug = None
+    if len(parts) >= 2 and parts[0] not in ("localhost", "www", "127"):
+        cand = parts[0]
+        if school_by_slug(cand):
+            slug = cand
+    g._host_slug = slug
+    return slug
+
+def _current_slug():
+    hs = _host_slug()
+    if hs:
+        return hs
+    if session.get("school_slug"):
+        return session["school_slug"]
+    hdr = request.headers.get("Authorization", "")
+    if hdr.startswith("Bearer "):
+        entry = AUTH_TOKENS.get(hdr[7:].strip())
+        if entry and entry != "super":
+            return entry[1]
+    return None
+
+def boot():
+    ensure_platform()
 app = Flask(__name__)
 
 def _load_secret():
@@ -79,7 +196,9 @@ AUTH_TOKENS = {}
 # ------------------------------------------------------------------ helpers
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
+        slug = _current_slug()
+        path = tenant_db_path(slug) if slug else DB_PATH
+        g.db = sqlite3.connect(path)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
@@ -125,20 +244,54 @@ def verify_password(stored, p):
     # legacy SHA-256 hash from older versions
     return secrets.compare_digest(hashlib.sha256(p.encode()).hexdigest(), stored)
 
+def _num_words(n):
+    ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+            "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+    if n == 0:
+        return "Zero"
+    def two(x):
+        return ones[x] if x < 20 else tens[x // 10] + ("-" + ones[x % 10] if x % 10 else "")
+    def three(x):
+        return (ones[x // 100] + " Hundred" + (" and " + two(x % 100) if x % 100 else "") if x >= 100 else two(x))
+    words, i = "", 0
+    scale = ["", " Thousand", " Million", " Billion"]
+    while n > 0:
+        part = n % 1000
+        if part:
+            words = three(part) + scale[i] + (" " + words if words else "")
+        n //= 1000
+        i += 1
+    return words
+
+def amount_in_words(amount):
+    sh = int(float(amount or 0))
+    cents = round((float(amount or 0) - sh) * 100)
+    w = "Kenya Shillings " + _num_words(sh)
+    if cents > 0:
+        w += " and " + _num_words(cents) + " Cents"
+    return w + " Only"
+
 def fmt_amount(n):
     s = settings_map()
     cur = s.get("currency", "KSh")
     return f"{cur} {float(n or 0):,.0f}"
 
 def auth_user():
-    """Current user row from cookie session or Bearer token."""
+    """Current user row from cookie session or Bearer token (superadmin has no tenant)."""
+    def super_row(uid, uname, full):
+        return {"id": uid, "username": uname, "full_name": full, "role": "superadmin"}
     if session.get("user_id"):
+        if session.get("is_super"):
+            return super_row(session["user_id"], session.get("username"), session.get("name"))
         return q1("SELECT * FROM users WHERE id=?", (session["user_id"],))
     hdr = request.headers.get("Authorization", "")
     if hdr.startswith("Bearer "):
-        uid = AUTH_TOKENS.get(hdr[7:].strip())
-        if uid:
-            return q1("SELECT * FROM users WHERE id=?", (uid,))
+        entry = AUTH_TOKENS.get(hdr[7:].strip())
+        if entry == "super":
+            return super_row(0, "superadmin", "Platform Administrator")
+        if entry:
+            return q1("SELECT * FROM users WHERE id=?", (entry[0],))
     return None
 
 def acting_name():
@@ -188,6 +341,17 @@ finance_required = role_required("admin", "accounts")
 academic_required = role_required("admin", "teacher")
 guardian_required = role_required("guardian")
 library_required = role_required("admin", "librarian")
+
+def super_required(fn):
+    @functools.wraps(fn)
+    def wrap(*a, **kw):
+        u = auth_user()
+        if not u:
+            return jsonify({"error": "Unauthorized"}), 401
+        if u["role"] != "superadmin":
+            return jsonify({"error": "Platform admin only"}), 403
+        return fn(*a, **kw)
+    return wrap
 
 
 # ------------------------------------------------------------------ grading
@@ -382,22 +546,48 @@ def login():
     blocked = _check_rate(key)
     if blocked:
         return jsonify({"error": blocked}), 429
-    u = q1("SELECT * FROM users WHERE username=? AND active=1", (uname,))
+    host_slug = _host_slug()
+    if host_slug:
+        sch = school_by_slug(host_slug)
+        u = None
+        if sch and sch.get("active"):
+            try:
+                c = sqlite3.connect(sch["db_path"])
+                c.row_factory = sqlite3.Row
+                u = c.execute("SELECT * FROM users WHERE username=? AND active=1", (uname,)).fetchone()
+                c.close()
+            except Exception:
+                u = None
+        slug = host_slug if u else None
+    else:
+        u, slug = find_user_global(uname)
     if not u or not verify_password(u["password_hash"], data.get("password", "")):
         _record_fail(key)
         return jsonify({"error": "Wrong password or username. Please check your details and try again."}), 401
     _fails.pop(key, None)
-    # upgrade legacy SHA-256 hashes to scrypt on first successful login
+    token = secrets.token_hex(16)
+    if slug == "super":
+        session["user_id"] = 0
+        session["is_super"] = True
+        session["username"] = u["username"]
+        session["name"] = u["full_name"]
+        session.pop("school_slug", None)
+        AUTH_TOKENS[token] = "super"
+        return jsonify({"id": 0, "username": u["username"], "full_name": u["full_name"],
+                        "role": "superadmin", "token": token})
+    # school user: upgrade legacy hashes + bind token/session to the school
     if u["password_hash"] and not u["password_hash"].startswith("scrypt$"):
-        exe("UPDATE users SET password_hash=? WHERE id=?", (phash(data.get("password", "")), u["id"]))
+        c = sqlite3.connect(tenant_db_path(slug))
+        c.execute("UPDATE users SET password_hash=? WHERE id=?", (phash(data.get("password", "")), u["id"]))
+        c.commit(); c.close()
     session["user_id"] = u["id"]
     session["role"] = u["role"]
     session["name"] = u["full_name"]
-    token = secrets.token_hex(16)
-    AUTH_TOKENS[token] = u["id"]
+    session["school_slug"] = slug
+    AUTH_TOKENS[token] = (u["id"], slug)
     return jsonify({"id": u["id"], "username": u["username"], "full_name": u["full_name"],
                     "role": u["role"], "teacher_id": u["teacher_id"],
-                    "profile_pic": u["profile_pic"], "token": token})
+                    "profile_pic": u["profile_pic"], "token": token, "school_slug": slug})
 
 @app.route("/api/logout", methods=["POST"])
 def logout():
@@ -407,13 +597,85 @@ def logout():
     session.clear()
     return jsonify({"ok": True})
 
+# ------------------------------------------------------------------ forgot password
+def _ensure_reset_table():
+    db().execute("""CREATE TABLE IF NOT EXISTS reset_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')))""")
+    db().commit()
+
+@app.route("/api/auth/forgot", methods=["POST"])
+def forgot_password():
+    """Request a password-reset code. 'Sends' a 6-digit code via the SMS log
+    (simulated — in production this goes through the SMS gateway) and stores a
+    hashed copy with a 15-minute expiry. Returns demo_code only because SMS is
+    simulated here; a real gateway would never return it."""
+    d = request.get_json(force=True) or {}
+    uname = d.get("username", "").strip()
+    _ensure_reset_table()
+    code = None
+    if uname:
+        u = q1("SELECT * FROM users WHERE username=?", (uname,))
+        if u:
+            code = f"{secrets.randbelow(1000000):06d}"
+            expires = (datetime.datetime.now() + datetime.timedelta(minutes=15)).isoformat()
+            exe("INSERT INTO reset_tokens(user_id,code_hash,expires_at) VALUES(?,?,?)",
+                (u["id"], phash(code), expires))
+            # resolve a phone number to 'send' to (guardian username IS the phone)
+            phone = ""
+            if u["role"] == "guardian" and uname.isdigit():
+                phone = uname
+            elif u["role"] == "teacher" and u["teacher_id"]:
+                tr = q1("SELECT phone FROM teachers WHERE id=?", (u["teacher_id"],))
+                phone = tr["phone"] if tr and tr["phone"] else phone
+            elif u["role"] == "librarian":
+                tr = q1("SELECT phone FROM teachers WHERE id=?", (u["teacher_id"],))
+                phone = tr["phone"] if tr and tr["phone"] else phone
+            exe("""INSERT INTO sms_log(to_phone,parent_name,student_name,message,category,status)
+                   VALUES(?,?,?,?,?,?)""",
+                (phone, u["full_name"], "",
+                 f"Your ElimuPro password reset code is {code}. It expires in 15 minutes. - {settings_map().get('school_name','School')}",
+                 "Password Reset", "Sent"))
+    # never reveal whether the username exists
+    return jsonify({"ok": True, "demo_code": code if code else None})
+
+@app.route("/api/auth/reset", methods=["POST"])
+def reset_password():
+    """Verify the code and set a new password (one step)."""
+    d = request.get_json(force=True) or {}
+    uname = d.get("username", "").strip()
+    code = str(d.get("code", "")).strip()
+    newpass = d.get("new_password", "")
+    if len(newpass) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    u = q1("SELECT * FROM users WHERE username=?", (uname,))
+    if not u:
+        return jsonify({"error": "Invalid reset details"}), 400
+    _ensure_reset_table()
+    now = datetime.datetime.now().isoformat()
+    tok = q1("""SELECT * FROM reset_tokens WHERE user_id=? AND used=0 AND expires_at>? ORDER BY id DESC LIMIT 1""",
+             (u["id"], now))
+    if not tok or not verify_password(tok["code_hash"], code):
+        return jsonify({"error": "Invalid or expired code. Please request a new one."}), 400
+    cur = db()
+    cur.execute("UPDATE reset_tokens SET used=1 WHERE id=?", (tok["id"],))
+    cur.execute("UPDATE users SET password_hash=? WHERE id=?", (phash(newpass), u["id"]))
+    cur.commit()
+    log_activity("Password reset", f"{uname} reset their password")
+    return jsonify({"ok": True})
+
 @app.route("/api/me")
 @any_required
 def me():
     u = auth_user()
     return jsonify({"id": u["id"], "name": u["full_name"], "role": u["role"],
                     "username": u["username"], "profile_pic": u["profile_pic"],
-                    "teacher_id": u["teacher_id"]})
+                    "teacher_id": (u["teacher_id"] if "teacher_id" in u else None),
+                    "school_slug": _current_slug()})
 
 # ------------------------------------------------------------------ users
 @app.route("/api/users")
@@ -520,11 +782,13 @@ def upload_pic(kind, rid):
         return jsonify({"error": "Invalid image data"}), 400
     if len(raw) > 4 * 1024 * 1024:
         return jsonify({"error": "Image too large (max 4MB)"}), 400
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    subdir = _current_slug() or "default"
+    target = os.path.join(UPLOAD_DIR, subdir)
+    os.makedirs(target, exist_ok=True)
     fname = f"{kind}_{rid}_{secrets.token_hex(4)}.{ext}"
-    with open(os.path.join(UPLOAD_DIR, fname), "wb") as f:
+    with open(os.path.join(target, fname), "wb") as f:
         f.write(raw)
-    path = f"/static/uploads/{fname}"
+    path = f"/static/uploads/{subdir}/{fname}"
     if kind == "user":
         exe("UPDATE users SET profile_pic=? WHERE id=?", (path, rid))
     elif kind == "student":
@@ -2388,6 +2652,173 @@ def export_xlsx():
                      as_attachment=True, download_name=filename)
     return resp
 
+# ------------------------------------------------------------------ payroll
+def payroll_settings():
+    s = settings_map()
+    return {
+        "paye_low": float(s.get("paye_low", 24000)), "paye_mid": float(s.get("paye_mid", 32333)),
+        "paye_low_rate": float(s.get("paye_low_rate", 0.10)), "paye_mid_rate": float(s.get("paye_mid_rate", 0.25)),
+        "paye_high_rate": float(s.get("paye_high_rate", 0.30)), "personal_relief": float(s.get("personal_relief", 2400)),
+        "shif_rate": float(s.get("shif_rate", 0.0275)), "shif_enabled": s.get("shif_enabled", "1") != "0",
+        "nssf_rate": float(s.get("nssf_rate", 0.06)), "nssf_cap": float(s.get("nssf_cap", 36000)),
+        "nssf_enabled": s.get("nssf_enabled", "1") != "0",
+        "housing_rate": float(s.get("housing_rate", 0.015)), "housing_enabled": s.get("housing_enabled", "1") != "0",
+    }
+
+def compute_payslip(basic, allowances, other_ded=0, ps=None):
+    ps = ps or payroll_settings()
+    gross = (basic or 0) + (allowances or 0)
+    taxable = gross
+    paye = 0.0
+    paye += min(taxable, ps["paye_low"]) * ps["paye_low_rate"]
+    if taxable > ps["paye_low"]:
+        paye += (min(taxable, ps["paye_mid"]) - ps["paye_low"]) * ps["paye_mid_rate"]
+    if taxable > ps["paye_mid"]:
+        paye += (taxable - ps["paye_mid"]) * ps["paye_high_rate"]
+    paye = max(0, paye - ps["personal_relief"])
+    shif = round(gross * ps["shif_rate"], 2) if ps["shif_enabled"] else 0
+    nssf = round(min(gross, ps["nssf_cap"]) * ps["nssf_rate"], 2) if ps["nssf_enabled"] else 0
+    housing = round(gross * ps["housing_rate"], 2) if ps["housing_enabled"] else 0
+    total_d = round(paye + shif + nssf + housing + (other_ded or 0), 2)
+    return {"basic": round(basic or 0, 2), "allowances": round(allowances or 0, 2), "gross": round(gross, 2),
+            "paye": round(paye, 2), "shif": shif, "nssf": nssf, "housing": housing,
+            "other_deductions": round(other_ded or 0, 2), "total_deductions": total_d,
+            "net_pay": round(gross - total_d, 2)}
+
+@app.route("/api/payroll/employees")
+@finance_required
+def payroll_employees():
+    rows = q("""SELECT t.*, s.name subject_name FROM teachers t
+                LEFT JOIN subjects s ON s.id=t.subject_id
+                WHERE t.active=1 ORDER BY t.first_name""")
+    return jsonify(rows_to_dicts(rows))
+
+@app.route("/api/payroll/employees/<int:tid>", methods=["PUT"])
+@finance_required
+def payroll_employee_update(tid):
+    d = request.get_json(force=True) or {}
+    fields = ["basic_salary", "allowances", "kra_pin", "nssf_no", "shif_no", "bank_name", "bank_account"]
+    sets = [f for f in fields if f in d]
+    if sets:
+        exe("UPDATE teachers SET " + ", ".join(f"{f}=?" for f in sets) + " WHERE id=?",
+            tuple(d[f] for f in sets) + (tid,))
+    log_activity("Payroll profile updated", f"teacher #{tid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/payroll/settings", methods=["GET", "PUT"])
+@finance_required
+def payroll_settings_ep():
+    if request.method == "GET":
+        return jsonify(payroll_settings())
+    d = request.get_json(force=True) or {}
+    cur = db()
+    for k, v in d.items():
+        cur.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (k, str(v)))
+    cur.commit()
+    log_activity("Payroll settings updated", "")
+    return jsonify({"ok": True})
+
+@app.route("/api/payroll/run", methods=["POST"])
+@finance_required
+def payroll_run():
+    d = request.get_json(force=True) or {}
+    month = int(d.get("month") or datetime.date.today().month)
+    year = int(d.get("year") or datetime.date.today().year)
+    months = ["", "January", "February", "March", "April", "May", "June", "July",
+              "August", "September", "October", "November", "December"]
+    label = f"{months[month]} {year}"
+    existing = q1("SELECT id FROM payroll_runs WHERE month=? AND year=?", (month, year))
+    if existing:
+        return jsonify({"error": f"Payroll for {label} already exists"}), 400
+    ps = payroll_settings()
+    cur = db()
+    rid = cur.execute("""INSERT INTO payroll_runs(month,year,period_label,status,prepared_by)
+                         VALUES(?,?,?,'Draft',?)""", (month, year, label, acting_name())).lastrowid
+    count = 0
+    for t in cur.execute("SELECT id, basic_salary, allowances FROM teachers WHERE active=1"):
+        c = compute_payslip(t["basic_salary"], t["allowances"], 0, ps)
+        cur.execute("""INSERT INTO payroll_payslips(run_id,teacher_id,basic_salary,allowances,gross,paye,shif,nssf,housing,
+                                                    other_deductions,total_deductions,net_pay,paid)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                    (rid, t["id"], c["basic"], c["allowances"], c["gross"], c["paye"], c["shif"], c["nssf"],
+                     c["housing"], c["other_deductions"], c["total_deductions"], c["net_pay"]))
+        count += 1
+    cur.commit()
+    log_activity("Payroll run created", f"{label} · {count} employees · Draft")
+    return jsonify({"run_id": rid, "count": count, "label": label})
+
+@app.route("/api/payroll/runs")
+@finance_required
+def payroll_runs():
+    rows = q("""SELECT r.*,
+                       (SELECT COUNT(*) FROM payroll_payslips p WHERE p.run_id=r.id) employees,
+                       (SELECT SUM(net_pay) FROM payroll_payslips p WHERE p.run_id=r.id) net_total,
+                       (SELECT SUM(gross) FROM payroll_payslips p WHERE p.run_id=r.id) gross_total,
+                       (SELECT SUM(total_deductions) FROM payroll_payslips p WHERE p.run_id=r.id) deductions_total
+                FROM payroll_runs r ORDER BY r.year DESC, r.month DESC""")
+    return jsonify(rows_to_dicts(rows))
+
+@app.route("/api/payroll/run/<int:rid>")
+@finance_required
+def payroll_run_detail(rid):
+    run = q1("SELECT * FROM payroll_runs WHERE id=?", (rid,))
+    if not run:
+        return jsonify({"error": "Not found"}), 404
+    slips = q("""SELECT p.*, t.first_name, t.last_name, t.tsc_no, t.bank_name, t.bank_account
+                 FROM payroll_payslips p JOIN teachers t ON t.id=p.teacher_id
+                 WHERE p.run_id=? ORDER BY t.first_name""", (rid,))
+    return jsonify({"run": dict(run), "slips": rows_to_dicts(slips)})
+
+@app.route("/api/payroll/run/<int:rid>/pay", methods=["POST"])
+@finance_required
+def payroll_run_pay(rid):
+    cur = db()
+    cur.execute("UPDATE payroll_payslips SET paid=1 WHERE run_id=?", (rid,))
+    cur.execute("UPDATE payroll_runs SET status='Paid' WHERE id=?", (rid,))
+    cur.commit()
+    log_activity("Payroll marked paid", f"run #{rid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/payroll/run/<int:rid>", methods=["DELETE"])
+@finance_required
+def payroll_run_delete(rid):
+    exe("DELETE FROM payroll_payslips WHERE run_id=?", (rid,))
+    exe("DELETE FROM payroll_runs WHERE id=?", (rid,))
+    log_activity("Payroll run deleted", f"run #{rid}")
+    return jsonify({"ok": True})
+
+@app.route("/api/payroll/payslip/<int:pid>")
+@finance_required
+def payroll_payslip(pid):
+    p = q1("""SELECT p.*, t.first_name, t.last_name, t.tsc_no, t.kra_pin, t.nssf_no, t.shif_no,
+                     t.bank_name, t.bank_account, t.phone, r.period_label, r.month, r.year
+              FROM payroll_payslips p
+              JOIN teachers t ON t.id=p.teacher_id
+              JOIN payroll_runs r ON r.id=p.run_id
+              WHERE p.id=?""", (pid,))
+    if not p:
+        return jsonify({"error": "Not found"}), 404
+    out = dict(p)
+    out["school"] = settings_map()
+    out["amount_words"] = amount_in_words(p["net_pay"])
+    return jsonify(out)
+
+@app.route("/api/payroll/summary")
+@finance_required
+def payroll_summary():
+    s = settings_map()
+    employees = q1("SELECT COUNT(*) c FROM teachers WHERE active=1")["c"]
+    gross_total = q1("SELECT COALESCE(SUM(basic_salary+allowances),0) a FROM teachers WHERE active=1")["a"]
+    last_run = q1("""SELECT * FROM payroll_runs ORDER BY year DESC, month DESC LIMIT 1""")
+    last_paid = 0
+    if last_run:
+        last_paid = q1("SELECT COALESCE(SUM(net_pay),0) a FROM payroll_payslips WHERE run_id=?", (last_run["id"],))["a"]
+    return jsonify({"employees": employees, "monthly_gross": gross_total,
+                    "last_run": dict(last_run) if last_run else None,
+                    "last_net": last_paid,
+                    "settings": payroll_settings()})
+
 # ------------------------------------------------------------------ library
 @app.route("/api/library/books")
 @any_required
@@ -2518,6 +2949,63 @@ def library_summary():
     return jsonify({"total_titles": total, "total_copies": copies, "available": available,
                     "issued": issued, "overdue": overdue})
 
+# ------------------------------------------------------------------ multi-school management (super admin)
+@app.route("/api/schools")
+@super_required
+def schools_list():
+    out = []
+    for sch in list_schools():
+        try:
+            c = sqlite3.connect(sch["db_path"])
+            c.row_factory = sqlite3.Row
+            students = c.execute("SELECT COUNT(*) c FROM students WHERE status='Active'").fetchone()["c"]
+            teachers = c.execute("SELECT COUNT(*) c FROM teachers WHERE active=1").fetchone()["c"]
+            c.close()
+        except Exception:
+            students = teachers = 0
+        out.append({**sch, "students": students, "teachers": teachers})
+    return jsonify(out)
+
+@app.route("/api/schools", methods=["POST"])
+@super_required
+def schools_create():
+    d = request.get_json(force=True) or {}
+    name = (d.get("name") or "").strip()
+    slug = (d.get("slug") or "").strip().lower()
+    import re as _re
+    if not name:
+        return jsonify({"error": "School name required"}), 400
+    if not _re.match(r"^[a-z0-9][a-z0-9-]{2,30}$", slug):
+        return jsonify({"error": "Slug must be 3-31 chars: lowercase letters, numbers, hyphens"}), 400
+    if school_by_slug(slug):
+        return jsonify({"error": "A school with this slug already exists"}), 400
+    sample = bool(d.get("sample"))
+    path = os.path.join(DATA_DIR, f"school_{slug}.db")
+    admin_user = (d.get("admin_user") or "admin").strip()
+    admin_pass = d.get("admin_pass") or "admin123"
+    try:
+        import seed as _seed
+        _seed.seed_db(path, school_name=name, sample=sample,
+                      admin_user=admin_user, admin_pass=admin_pass)
+    except Exception as e:
+        return jsonify({"error": f"Could not create school: {e}"}), 500
+    import seed as _seed2
+    _seed2.register_school(slug, name, os.path.relpath(path, BASE_DIR))
+    log_activity("School created", f"{name} ({slug})")
+    return jsonify({"ok": True, "slug": slug, "name": name, "sample": sample})
+
+@app.route("/api/schools/<int:sid>", methods=["PUT"])
+@super_required
+def schools_update(sid):
+    d = request.get_json(force=True) or {}
+    m = open_meta()
+    if "active" in d:
+        m.execute("UPDATE schools SET active=? WHERE id=?", (1 if d["active"] else 0, sid))
+    if "name" in d and d["name"]:
+        m.execute("UPDATE schools SET name=? WHERE id=?", (d["name"].strip(), sid))
+    m.commit(); m.close()
+    return jsonify({"ok": True})
+
 # ------------------------------------------------------------------ settings
 @app.route("/api/settings", methods=["GET", "PUT"])
 @any_required
@@ -2535,7 +3023,6 @@ def settings_endpoint():
     return jsonify({"ok": True})
 
 if __name__ == "__main__":
-    if not os.path.exists(DB_PATH):
-        print("Database not found — run seed.py first")
+    boot()
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=False)

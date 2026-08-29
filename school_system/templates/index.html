@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ElimuPro — School Management System</title>
-<link rel="stylesheet" href="/static/css/style.css?v=24">
+<link rel="stylesheet" href="/static/css/style.css?v=27">
 </head>
 <body>
 
@@ -88,10 +88,44 @@
             <span class="btn-label">Sign in</span>
             <span class="btn-spinner hidden"></span>
           </button>
+          <p class="login-forgot anim-up delay-3"><a href="#" id="forgot-link">Forgot your password?</a></p>
         </form>
+
+        <!-- forgot password flow (swaps with the form) -->
+        <div id="forgot-area" class="hidden">
+          <div class="login-card-head"><h3>Reset password</h3>
+            <p id="fg-sub">Enter your username (staff) or phone number (parent) and we'll send you a reset code.</p></div>
+          <div class="field">
+            <label for="fg-username">Username / phone number</label>
+            <div class="input-wrap"><svg><use href="#i-users"/></svg>
+              <input type="text" id="fg-username" placeholder="Staff username or parent phone" autocomplete="off"></div>
+          </div>
+          <div id="fg-step2" class="hidden">
+            <div class="field">
+              <label for="fg-code">Reset code</label>
+              <div class="input-wrap"><svg><use href="#i-key"/></svg>
+                <input type="text" id="fg-code" inputmode="numeric" placeholder="6-digit code" maxlength="6"></div>
+            </div>
+            <div id="fg-demo" class="demo-code hidden">Demo: your code is <b id="fg-democode"></b></div>
+            <div class="field">
+              <label for="fg-pass">New password</label>
+              <div class="input-wrap"><svg><use href="#i-key"/></svg>
+                <input type="password" id="fg-pass" placeholder="At least 6 characters"></div>
+            </div>
+            <div class="field">
+              <label for="fg-pass2">Confirm new password</label>
+              <div class="input-wrap"><svg><use href="#i-key"/></svg>
+                <input type="password" id="fg-pass2" placeholder="Repeat the password"></div>
+            </div>
+          </div>
+          <p class="login-error" id="fg-error"></p>
+          <button class="btn btn-primary btn-block" id="fg-next">Send reset code</button>
+          <p class="login-card-foot"><span class="forgot" id="fg-back" style="cursor:pointer">← Back to sign in</span></p>
+        </div>
+
         <div class="login-card-foot anim-up delay-3">
           <p>Staff: use your school username.<br>Parents: sign in with your <b>phone number</b> issued by the school.</p>
-          <p class="forgot">Forgot your password? Contact the school office.</p>
+          <p class="forgot">Contact the school office if you need help.</p>
         </div>
       </div>
       <p class="login-copy anim-up delay-4">© <span id="login-year"></span> ElimuPro · Secure school management</p>
@@ -203,6 +237,6 @@
   <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1.5L8 22l2-1.5L12 22l2-1.5L16 22l2-1.5L20 22V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
 </svg>
 
-<script src="/static/js/app.js?v=24"></script>
+<script src="/static/js/app.js?v=27"></script>
 </body>
 </html>
