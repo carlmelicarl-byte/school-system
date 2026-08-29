@@ -4,7 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ElimuPro — School Management System</title>
-<link rel="stylesheet" href="/static/css/style.css?v=28">
+<link rel="stylesheet" href="/static/css/style.css?v=31">
+<style>
+  /* shown only if the app shell (css/js) fails to load — e.g. static file preview */
+  #ep-preview-note{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#0b1226;color:#fff;z-index:999999;font:15px/1.7 system-ui,sans-serif;padding:30px;text-align:center}
+  #ep-preview-note h2{margin:0 0 10px;color:#4ade80;font-size:26px}
+  #ep-preview-note code{background:rgba(255,255,255,.12);border-radius:8px;padding:8px 14px;display:inline-block;
+    font-family:ui-monospace,monospace;font-size:13px}
+</style>
+<script>
+(function(){
+  window.__epVersion = "v31";
+  // 2.5s after load, if the real app didn't boot, show a helpful notice instead of a silent white page
+  setTimeout(function(){
+    if (window.ELIMUPRO_APP_LOADED) return;
+    var d = document.createElement("div");
+    d.id = "ep-preview-note";
+    d.innerHTML = "<div><h2>ElimuPro</h2>" +
+      "<p style='margin:0 0 6px'>This is the <b>static file preview</b> — it cannot run the app (no styles/scripts load here).</p>" +
+      "<p style='margin:0 0 10px;opacity:.85'>Please open the <b>live app preview</b> in this chat, or run the server:</p>" +
+      "<code>python3 app.py  →  http://localhost:8000</code>" +
+      "<p style='margin:12px 0 0;opacity:.6;font-size:12px'>If you ARE on the live app, hard-refresh (Ctrl+Shift+R) to clear a stale cached version.</p></div>";
+    document.body.appendChild(d);
+  }, 2500);
+})();
+</script>
 </head>
 <body>
 
@@ -16,119 +41,124 @@
 
 <!-- ======================= LOGIN ======================= -->
 <div id="login-screen" class="login-screen hidden">
-  <!-- animated background -->
+  <!-- animated, human-feel background -->
   <div class="login-bg">
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
-    <div class="login-grid-overlay"></div>
-    <div class="login-particles" id="login-particles"></div>
+    <div class="blob blob-a"></div>
+    <div class="blob blob-b"></div>
+    <div class="blob blob-c"></div>
+    <div class="paper-grid"></div>
+    <div class="floaters" id="floaters"></div>
   </div>
 
-  <div class="login-shell">
-    <!-- LEFT: brand panel -->
-    <div class="login-brand">
-      <div class="brand-top anim-up">
-        <div class="login-logo-badge">
-          <svg viewBox="0 0 48 48" width="30" height="30"><path fill="currentColor" d="M24 4 3 14l21 10 15-7.1V30h4V14L24 4z"/><path fill="currentColor" opacity=".65" d="M11 25.5V34c0 3.9 5.8 8 13 8s13-4.1 13-8v-8.5L24 30l-13-4.5z"/></svg>
-        </div>
-        <div>
-          <h1 id="login-school-name">ElimuPro</h1>
-          <p class="tagline" id="login-school-motto">School Management System</p>
-        </div>
+  <div class="login-stage">
+    <!-- left: brand panel -->
+    <div class="brand-panel">
+      <div class="bp-logo anim-rise">
+        <svg viewBox="0 0 64 64" width="54" height="54" class="sketch-logo">
+          <path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"
+                d="M8 30 L32 14 L56 30 M13 27 V46 M51 27 V46 M8 46 H56 M18 46 V34 H46 V46 M24 40 h6 M34 40 h6"/>
+          <path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                d="M15 22 q -3 -2 -1 -5 q 3 -1 4 2 M20 19 q -2 -3 1 -5 q 3 0 3 3 M49 22 q 3 -2 1 -5 q -3 -1 -4 2 M44 19 q 2 -3 -1 -5 q -3 0 -3 3"/>
+          <path fill="currentColor" d="M30 40 h4 v6 h-4 z"/>
+        </svg>
       </div>
-
-      <div class="brand-hero anim-up delay-1">
-        <h2 id="login-hero-line">Manage your entire school,<br><span>effortlessly.</span></h2>
-        <p>Students · Academics · Finance · Transport · Library · Parent portal — all in one clean, secure platform built for Kenyan schools.</p>
+      <div class="bp-greeting anim-rise d1">
+        <span class="script">Karibu · Welcome</span>
+        <h1 id="login-school-name">ElimuPro</h1>
+        <p class="bp-tag" id="login-school-motto">School Management System</p>
       </div>
-
-      <div class="brand-features anim-up delay-2">
-        <div class="bf-item"><svg><use href="#i-check"/></svg><span>CBC curriculum &amp; E/M/A/B grading</span></div>
-        <div class="bf-item"><svg><use href="#i-check"/></svg><span>M-PESA-ready fee management</span></div>
-        <div class="bf-item"><svg><use href="#i-check"/></svg><span>Parent portal with results &amp; balances</span></div>
-        <div class="bf-item"><svg><use href="#i-check"/></svg><span>Report cards, ID cards &amp; receipts</span></div>
+      <div class="bp-typing anim-rise d2">
+        <p id="type-line"></p><span class="caret"></span>
       </div>
-
-      <div class="brand-foot anim-up delay-3">
-        <div class="bf-stat"><b id="login-stat-students">—</b><small>Students</small></div>
-        <div class="bf-stat"><b id="login-stat-teachers">—</b><small>Teachers</small></div>
-        <div class="bf-stat"><b id="login-stat-modules">—</b><small>Modules</small></div>
+      <ul class="bp-points anim-rise d3">
+        <li><svg><use href="#i-check"/></svg> One place for every school module</li>
+        <li><svg><use href="#i-check"/></svg> Parents, teachers &amp; students connected</li>
+        <li><svg><use href="#i-check"/></svg> Works offline, syncs automatically</li>
+      </ul>
+      <div class="bp-stats anim-rise d4">
+        <div><b id="login-stat-students">—</b><span>Students</span></div>
+        <div><b id="login-stat-teachers">—</b><span>Teachers</span></div>
+        <div><b id="login-stat-modules">18</b><span>Modules</span></div>
       </div>
+      <p class="bp-foot anim-rise d5">© <span id="login-year"></span> <span id="bp-foot-name">ElimuPro</span> · made with care for schools</p>
     </div>
 
-    <!-- RIGHT: form panel -->
-    <div class="login-panel">
-      <div class="login-card anim-card">
-        <div class="login-card-head">
-          <h3>Welcome back 👋</h3>
-          <p>Sign in to continue to your dashboard</p>
+    <!-- right: form panel -->
+    <div class="form-panel">
+      <div class="login-card" id="login-card">
+        <div class="card-notch" aria-hidden="true"></div>
+        <div class="lc-head anim-rise">
+          <h3>Sign in</h3>
+          <p id="lc-sub">Nice to see you again 👋</p>
         </div>
-        <form id="login-form" autocomplete="on">
-          <div class="field anim-up delay-1">
-            <label for="login-username">Username</label>
-            <div class="input-wrap">
-              <svg><use href="#i-users"/></svg>
-              <input type="text" id="login-username" placeholder="Staff username or parent phone" autocomplete="username" required>
+
+        <form id="login-form" novalidate autocomplete="on">
+          <div class="field anim-rise d1">
+            <div class="fl-wrap">
+              <input type="text" id="login-username" placeholder=" " autocomplete="username" spellcheck="false">
+              <label for="login-username">Username or phone number</label>
+              <svg class="f-ic"><use href="#i-users"/></svg>
             </div>
           </div>
-          <div class="field anim-up delay-2">
-            <label for="login-password">Password</label>
-            <div class="input-wrap">
-              <svg><use href="#i-key"/></svg>
-              <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" required>
+          <div class="field anim-rise d2">
+            <div class="fl-wrap">
+              <input type="password" id="login-password" placeholder=" " autocomplete="current-password">
+              <label for="login-password">Password</label>
+              <svg class="f-ic"><use href="#i-key"/></svg>
               <button type="button" class="pw-toggle" id="pw-toggle" tabindex="-1" title="Show password">
                 <svg id="pw-eye"><use href="#i-eye"/></svg>
                 <svg id="pw-eye-off" class="hidden"><use href="#i-eye-off"/></svg>
               </button>
             </div>
+            <p class="caps-warn hidden" id="caps-warn">⇧ Caps Lock is on</p>
           </div>
-          <p class="login-error anim-up" id="login-error"></p>
-          <button type="submit" id="login-submit" class="btn btn-primary btn-block anim-up delay-3">
+
+          <div class="row-between anim-rise d3">
+            <label class="remember"><input type="checkbox" id="remember-me"><span>Remember me</span></label>
+            <a href="#" class="forgot" id="forgot-link">Forgot password?</a>
+          </div>
+
+          <p class="login-error anim-rise" id="login-error"></p>
+
+          <button type="submit" id="login-submit" class="login-btn anim-rise d3">
             <span class="btn-label">Sign in</span>
             <span class="btn-spinner hidden"></span>
+            <span class="btn-check hidden"><svg><use href="#i-check"/></svg></span>
           </button>
-          <p class="login-forgot anim-up delay-3"><a href="#" id="forgot-link">Forgot your password?</a></p>
         </form>
 
-        <!-- forgot password flow (swaps with the form) -->
+        <!-- forgot flow (swaps in) -->
         <div id="forgot-area" class="hidden">
-          <div class="login-card-head"><h3>Reset password</h3>
-            <p id="fg-sub">Enter your username (staff) or phone number (parent) and we'll send you a reset code.</p></div>
-          <div class="field">
-            <label for="fg-username">Username / phone number</label>
-            <div class="input-wrap"><svg><use href="#i-users"/></svg>
-              <input type="text" id="fg-username" placeholder="Staff username or parent phone" autocomplete="off"></div>
-          </div>
+          <div class="lc-head"><h3>Reset password</h3>
+            <p id="fg-sub">Enter your username (staff) or phone number (parent) and we'll send a reset code.</p></div>
+          <div class="field"><div class="fl-wrap">
+            <input type="text" id="fg-username" placeholder=" " autocomplete="off"><label for="fg-username">Username / phone number</label>
+            <svg class="f-ic"><use href="#i-users"/></svg></div></div>
           <div id="fg-step2" class="hidden">
-            <div class="field">
-              <label for="fg-code">Reset code</label>
-              <div class="input-wrap"><svg><use href="#i-key"/></svg>
-                <input type="text" id="fg-code" inputmode="numeric" placeholder="6-digit code" maxlength="6"></div>
-            </div>
+            <div class="field"><div class="fl-wrap">
+              <input type="text" id="fg-code" inputmode="numeric" placeholder=" " maxlength="6"><label for="fg-code">6-digit code</label>
+              <svg class="f-ic"><use href="#i-key"/></svg></div></div>
             <div id="fg-demo" class="demo-code hidden">Demo: your code is <b id="fg-democode"></b></div>
-            <div class="field">
-              <label for="fg-pass">New password</label>
-              <div class="input-wrap"><svg><use href="#i-key"/></svg>
-                <input type="password" id="fg-pass" placeholder="At least 6 characters"></div>
-            </div>
-            <div class="field">
-              <label for="fg-pass2">Confirm new password</label>
-              <div class="input-wrap"><svg><use href="#i-key"/></svg>
-                <input type="password" id="fg-pass2" placeholder="Repeat the password"></div>
-            </div>
+            <div class="field"><div class="fl-wrap">
+              <input type="password" id="fg-pass" placeholder=" "><label for="fg-pass">New password (min 6)</label>
+              <svg class="f-ic"><use href="#i-key"/></svg></div></div>
+            <div class="field"><div class="fl-wrap">
+              <input type="password" id="fg-pass2" placeholder=" "><label for="fg-pass2">Confirm password</label>
+              <svg class="f-ic"><use href="#i-key"/></svg></div></div>
           </div>
           <p class="login-error" id="fg-error"></p>
-          <button class="btn btn-primary btn-block" id="fg-next">Send reset code</button>
-          <p class="login-card-foot"><span class="forgot" id="fg-back" style="cursor:pointer">← Back to sign in</span></p>
+          <button class="login-btn" id="fg-next" type="button">Send reset code</button>
+          <p class="fg-back" id="fg-back">← Back to sign in</p>
         </div>
 
-        <div class="login-card-foot anim-up delay-3">
-          <p>Staff: use your school username.<br>Parents: sign in with your <b>phone number</b> issued by the school.</p>
-          <p class="forgot">Contact the school office if you need help.</p>
+        <div class="demo-chips anim-rise d4">
+          <span>Quick demo:</span>
+          <button type="button" data-user="admin" data-pass="admin123">admin</button>
+          <button type="button" data-user="teacher" data-pass="teacher123">teacher</button>
         </div>
+        <p class="lc-foot anim-rise d5">Parents sign in with their <b>phone number</b> · Need help? Contact the school office.</p>
       </div>
-      <p class="login-copy anim-up delay-4">© <span id="login-year"></span> ElimuPro · Secure school management</p>
+      <p class="form-aside anim-rise d5"><svg><use href="#i-shield"/></svg> Secure sign-in · build <span id="login-ver"></span></p>
     </div>
   </div>
 </div>
@@ -237,6 +267,6 @@
   <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1.5L8 22l2-1.5L12 22l2-1.5L16 22l2-1.5L20 22V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
 </svg>
 
-<script src="/static/js/app.js?v=28"></script>
+<script src="/static/js/app.js?v=31"></script>
 </body>
 </html>

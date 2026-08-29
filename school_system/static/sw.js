@@ -6,11 +6,11 @@
    - When back online the app auto-syncs queued changes
    ============================================================ */
 "use strict";
-const CACHE = "elimupro-v11";
+const CACHE = "elimupro-v16";
 const SHELL = [
   "/",
-  "/static/css/style.css",
-  "/static/js/app.js",
+  "/static/css/style.css?v=31",
+  "/static/js/app.js?v=31",
   "/static/sw.js",
 ];
 
@@ -29,6 +29,10 @@ self.addEventListener("activate", (e) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+// when the page first controls this SW, force a reload so the NEW shell loads
+self.addEventListener("message", (e) => {
+  if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 /* tiny stable hash for scoping cache keys by Authorization header */

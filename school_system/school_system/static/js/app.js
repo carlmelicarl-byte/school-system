@@ -4,30 +4,6 @@
    ============================================================ */
 "use strict";
 
-/* ---------------- global error visibility (never a silent white screen) ---------------- */
-(function () {
-  function showErrorBanner(msg) {
-    if (document.getElementById("ep-fatal")) return;
-    var b = document.createElement("div");
-    b.id = "ep-fatal";
-    b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#dc2626;color:#fff;" +
-      "padding:10px 16px;font:600 13px/1.4 system-ui,sans-serif;text-align:center";
-    b.textContent = "⚠ " + msg;
-    document.body.appendChild(b);
-  }
-  window.addEventListener("error", function (e) {
-    console.error("ElimuPro error:", e.message, e.error);
-    showErrorBanner("Something went wrong: " + (e.message || "script error") + " — try a hard refresh (Ctrl+Shift+R)");
-  });
-  window.addEventListener("unhandledrejection", function (e) {
-    var m = (e.reason && e.reason.message) || String(e.reason);
-    console.error("ElimuPro rejected:", m);
-    if (m.indexOf("offline") === -1 && m.indexOf("Session expired") === -1) {
-      showErrorBanner("Something went wrong: " + m.slice(0, 120));
-    }
-  });
-})();
-
 /* ---------------- helpers ---------------- */
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
@@ -219,50 +195,6 @@ function timeAgo(iso) {
   return fmtDate(iso);
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-// login password visibility toggle
-const pwToggle = document.getElementById("pw-toggle");
-if (pwToggle) pwToggle.addEventListener("click", () => {
-  const inp = document.getElementById("login-password");
-  const show = inp.type === "password";
-  inp.type = show ? "text" : "password";
-  document.getElementById("pw-eye").classList.toggle("hidden", show);
-  document.getElementById("pw-eye-off").classList.toggle("hidden", !show);
-  inp.focus();
-});
-// caps lock warning
-const pwInp = document.getElementById("login-password");
-if (pwInp) pwInp.addEventListener("keyup", (e) => {
-  const warn = document.getElementById("caps-warn");
-  if (warn) warn.classList.toggle("hidden", !e.getModifierState("CapsLock"));
-});
-// remember me: persist username
-const rememberBox = document.getElementById("remember-me");
-try {
-  if (localStorage.getItem("ep_remember_user")) {
-    if (rememberBox) rememberBox.checked = true;
-    document.getElementById("login-username").value = localStorage.getItem("ep_remember_user");
-  }
-} catch (e) {}
-function saveRemember(username) {
-  try {
-    if (rememberBox && rememberBox.checked) localStorage.setItem("ep_remember_user", username);
-    else localStorage.removeItem("ep_remember_user");
-  } catch (e) {}
-}
-function spawnParticles() {
-  const wrap = document.getElementById("floaters");
-  if (!wrap || wrap.childElementCount > 0) return;
-  const n = 24;
-  for (let i = 0; i < n; i++) {
-    const s = document.createElement("span");
-    const size = 2 + Math.random() * 4;
-    s.style.cssText = `left:${Math.random() * 100}%;width:${size}px;height:${size}px;` +
-      `animation-duration:${9 + Math.random() * 12}s;animation-delay:${-Math.random() * 14}s;opacity:${.25 + Math.random() * .5}`;
-    wrap.appendChild(s);
-  }
-}
-try { spawnParticles(); } catch (e) { console.error(e); }
-try { spawnParticles(); } catch (e) { console.error(e); }
 function modal(html, wide = false) {
   $("#modal-box").innerHTML = html;
   $("#modal-box").classList.toggle("wide", wide);
@@ -362,7 +294,6 @@ const NAV = [
     { v: "transport", label: "Transport", icon: "i-bus", roles: ["admin", "teacher", "accounts"] },
     { v: "attendance", label: "Attendance", icon: "i-calendar", roles: ["admin", "teacher"] },
     { v: "communication", label: "Communication", icon: "i-message", roles: ["admin", "accounts"] },
-    { v: "payroll", label: "Payroll", icon: "i-money", roles: ["admin", "accounts"] },
   ]},
   { group: "Library", items: [
     { v: "library", label: "Library", icon: "i-book", roles: ["admin", "teacher", "librarian"] },
@@ -373,7 +304,6 @@ const NAV = [
     { v: "idcards", label: "ID Cards", icon: "i-card", roles: ["admin", "teacher"] },
   ]},
   { group: "System", items: [{ v: "settings", label: "Settings", icon: "i-gear", roles: ["admin"] }] },
-  { group: "Platform", items: [{ v: "schools", label: "Schools", icon: "i-class", roles: ["superadmin"] }] },
   { group: "Parent Portal", items: [
     { v: "gdash", label: "My Dashboard", icon: "i-grid", roles: ["guardian"] },
     { v: "gresults", label: "Results", icon: "i-chart", roles: ["guardian"] },
@@ -404,186 +334,50 @@ function renderNav() {
    LOGIN / BOOT
    ============================================================ */
 function showLogin() {
-  document.getElementById("app").classList.add("hidden");
-  document.getElementById("login-screen").classList.remove("hidden");
-  paintLoginBrand();
-  startTyping();
-  try { spawnParticles(); } catch (e) {}
-  setTimeout(() => { const u = document.getElementById("login-username"); if (u) u.focus(); }, 350);
+  $("#app").classList.add("hidden");
+  $("#login-screen").classList.remove("hidden");
 }
-/* Paint the brand panel from settings only (NO network calls — the login page
-   must never depend on auth: a 401 here used to cause an infinite loop). */
-function paintLoginBrand() {
-  const s = state.settings || {};
-  const nameEl = document.getElementById("login-school-name");
-  const mottoEl = document.getElementById("login-school-motto");
-  const footEl = document.getElementById("bp-foot-name");
-  const yrEl = document.getElementById("login-year");
-  if (nameEl) nameEl.textContent = s.school_name || "ElimuPro";
-  if (mottoEl) mottoEl.textContent = s.school_motto || "School Management System";
-  if (footEl) footEl.textContent = s.school_name || "ElimuPro";
-  if (yrEl) yrEl.textContent = new Date().getFullYear();
+function enterApp() {
+  $("#login-screen").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+  $("#user-name").textContent = state.user.name;
+  $("#user-role").textContent = { admin: "Administrator", teacher: "Teacher", accounts: "Accounts", guardian: "Parent", librarian: "Librarian" }[state.user.role] || state.user.role;
+  $("#user-avatar").innerHTML = state.user.profile_pic
+    ? `<img src="${esc(state.user.profile_pic)}" alt="">`
+    : esc(initials(state.user.name));
+  $("#sidebar-school").textContent = state.settings.school_name;
+  $("#term-badge").textContent = state.settings.current_term + " · " + state.settings.academic_year;
+  $("#version-tag").textContent = "ElimuPro · v2.7 · " + new Date().getFullYear();
+  updateNetUI();
+  document.title = state.settings.school_name + " — ElimuPro";
+  applyAppearance();
+  renderNav();
+  openView(state.user.role === "guardian" ? "gdash" : "dashboard");
 }
-/* typewriter headline */
-const TYPE_LINES = [
-  "Students, marks, fees & reports — all in one calm place.",
-  "Share results with parents in a single click.",
-  "Transport, library, payroll and homework too.",
-  "Works offline — syncs when you are back online.",
-];
-let typingStarted = false;
-function startTyping() {
-  if (typingStarted) return;
-  typingStarted = true;
-  const el = document.getElementById("type-line");
-  if (!el) return;
-  let li = 0, ci = 0, deleting = false;
-  (function tick() {
-    const line = TYPE_LINES[li];
-    el.textContent = line.slice(0, ci);
-    if (!deleting && ci < line.length) { ci++; setTimeout(tick, 34); }
-    else if (!deleting) { deleting = true; setTimeout(tick, 1800); }
-    else if (ci > 0) { ci--; setTimeout(tick, 14); }
-    else { deleting = false; li = (li + 1) % TYPE_LINES.length; setTimeout(tick, 300); }
-  })();
-}
-
 async function doLogin(username, password) {
-  const errEl = document.getElementById("login-error");
-  const card = document.getElementById("login-card");
-  if (errEl) errEl.textContent = "";
-  card.classList.remove("shake", "success");
-  const btn = document.getElementById("login-submit");
-  const lbl = btn ? btn.querySelector(".btn-label") : null;
-  const spin = btn ? btn.querySelector(".btn-spinner") : null;
-  const chk = btn ? btn.querySelector(".btn-check") : null;
-  if (btn) btn.disabled = true;
-  if (lbl) lbl.textContent = "Signing in…";
-  if (spin) spin.classList.remove("hidden");
+  $("#login-error").textContent = "";
+  const card = $(".login-card");
+  card.classList.remove("shake");
+  const btn = $("#login-submit");
+  if (btn) { btn.disabled = true; btn.textContent = "Signing in…"; }
   try {
     const u = await api("/api/login", { method: "POST", body: { username, password } });
     authToken = u.token || null;
     try { if (authToken) localStorage.setItem("ep_token", authToken); } catch (e) {}
     state.user = u;
-    // a secondary fetch (settings) must NEVER block entering the app —
-    // that used to "log in but never reach the dashboard".
-    try { state.settings = await api("/api/settings"); } catch (e) { state.settings = state.settings || {}; }
-    saveRemember(username);
-    if (spin) spin.classList.add("hidden");
-    if (chk) chk.classList.remove("hidden");
-    if (lbl) lbl.textContent = "Welcome!";
-    card.classList.add("success");
-    setTimeout(() => { enterApp(); }, 500);
+    state.settings = await api("/api/settings");
+    enterApp();
   } catch (err) {
-    if (errEl) errEl.textContent = "❌ " + (err.message || "Login failed");
-    const pin = document.getElementById("login-password");
-    if (pin) { pin.value = ""; pin.focus(); }
-    if (spin) spin.classList.add("hidden");
-    if (lbl) lbl.textContent = "Sign in";
-    void card.offsetWidth;
+    // wrong username / password — echo it clearly and shake the card
+    $("#login-error").textContent = "❌ " + err.message;
+    $("#login-password").value = "";
+    $("#login-password").focus();
+    void card.offsetWidth; // restart the animation
     card.classList.add("shake");
-    if (btn) btn.disabled = false;
   }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "Sign in"; } }
 }
-
-function handleLoginSubmit(e) {
-  e.preventDefault();
-  doLogin(document.getElementById("login-username").value.trim(),
-          document.getElementById("login-password").value);
-}
-const loginForm = document.getElementById("login-form");
-if (loginForm) loginForm.addEventListener("submit", handleLoginSubmit);
-// safety net: even if the direct binding failed, catch the submit at document level
-document.addEventListener("submit", (e) => {
-  const f = e.target && e.target.id;
-  if (f === "login-form" && !e.defaultPrevented) handleLoginSubmit(e);
-}, true);
-// remember me persistence
-function saveRemember(username) {
-  try {
-    const rb = document.getElementById("remember-me");
-    if (rb && rb.checked) localStorage.setItem("ep_remember_user", username);
-    else localStorage.removeItem("ep_remember_user");
-  } catch (e) {}
-}
-// quick demo chips
-document.querySelectorAll(".demo-chips button").forEach((b) => {
-  b.addEventListener("click", () => {
-    document.getElementById("login-username").value = b.dataset.user;
-    document.getElementById("login-password").value = b.dataset.pass;
-    doLogin(b.dataset.user, b.dataset.pass);
-  });
-});
-
-/* ---------------- forgot password flow ---------------- */
-let fgStep = 1;   // 1 = enter username, 2 = enter code + new password
-let fgUsername = "";
-function fgShow(step) {
-  fgStep = step;
-  $("#fg-step2").classList.toggle("hidden", step !== 2);
-  $("#fg-error").textContent = "";
-  if (step === 1) {
-    $("#fg-sub").textContent = "Enter your username (staff) or phone number (parent) and we'll send you a reset code.";
-    $("#fg-next").innerHTML = "Send reset code";
-    $("#fg-demo").classList.add("hidden");
-  } else {
-    $("#fg-sub").textContent = "Enter the 6-digit code we sent, then choose a new password.";
-    $("#fg-next").innerHTML = "Reset password";
-    $("#fg-username").disabled = true;
-    $("#fg-code").focus();
-  }
-}
-$("#forgot-link").addEventListener("click", (e) => {
-  e.preventDefault();
-  $("#login-form").classList.add("hidden");
-  $("#forgot-area").classList.remove("hidden");
-  fgUsername = "";
-  $("#fg-username").value = "";
-  $("#fg-code").value = ""; $("#fg-pass").value = ""; $("#fg-pass2").value = "";
-  $("#fg-username").disabled = false;
-  fgShow(1);
-});
-$("#fg-back").addEventListener("click", () => {
-  $("#forgot-area").classList.add("hidden");
-  $("#login-form").classList.remove("hidden");
-  $("#login-username").focus();
-});
-$("#fg-next").addEventListener("click", async () => {
-  const btn = $("#fg-next");
-  btn.disabled = true;
-  try {
-    if (fgStep === 1) {
-      const uname = $("#fg-username").value.trim();
-      if (!uname) { $("#fg-error").textContent = "Enter your username or phone number"; return; }
-      const r = await api("/api/auth/forgot", { method: "POST", body: { username: uname } });
-      fgUsername = uname;
-      if (r.demo_code) {
-        $("#fg-democode").textContent = r.demo_code;
-        $("#fg-demo").classList.remove("hidden");
-      } else {
-        $("#fg-demo").classList.add("hidden");
-      }
-      fgShow(2);
-    } else {
-      const code = $("#fg-code").value.trim();
-      const p1 = $("#fg-pass").value, p2 = $("#fg-pass2").value;
-      if (!code) { $("#fg-error").textContent = "Enter the 6-digit reset code"; return; }
-      if (p1.length < 6) { $("#fg-error").textContent = "Password must be at least 6 characters"; return; }
-      if (p1 !== p2) { $("#fg-error").textContent = "Passwords do not match"; return; }
-      await api("/api/auth/reset", { method: "POST", body: { username: fgUsername, code, new_password: p1 } });
-      toast("Password reset — sign in with your new password");
-      $("#fg-back").click();
-      $("#login-username").value = fgUsername;
-      $("#login-password").focus();
-    }
-  } catch (err) { $("#fg-error").textContent = "❌ " + err.message; }
-  finally { btn.disabled = false; }
-});
-// Enter key works in the forgot flow
-["fg-username", "fg-code", "fg-pass", "fg-pass2"].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#fg-next").click(); } });
-});
+$("#login-form").addEventListener("submit", (e) => { e.preventDefault(); doLogin($("#login-username").value.trim(), $("#login-password").value); });
 $("#logout-btn").addEventListener("click", async () => {
   try { await api("/api/logout", { method: "POST" }); } catch (e) {}
   authToken = null;
@@ -628,8 +422,6 @@ const VIEWS = {
   idcards:      { title: "ID Cards",          sub: "Student identification cards", fn: view_idcards },
   homework:     { title: "Homework",          sub: "Assignments & due dates",       fn: view_homework },
   ghomework:    { title: "Homework",          sub: "Assignments for your child",    fn: view_ghomework },
-  payroll:      { title: "Payroll",           sub: "Salaries, deductions & payslips", fn: view_payroll },
-  schools:      { title: "Schools",           sub: "Manage schools on this platform", fn: view_schools },
 
   settings:     { title: "Settings",         sub: "School configuration & users",  fn: view_settings },
   gdash:        { title: "My Dashboard",     sub: "Your children at a glance",     fn: view_gdash },
@@ -4120,375 +3912,6 @@ const SMS_TEMPLATES = [
 ];
 
 /* ============================================================
-   PAYROLL — salaries, statutory deductions, payslips
-   ============================================================ */
-async function view_payroll(el, params) {
-  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading payroll…</p></div>`;
-  const sum = await api("/api/payroll/summary");
-  el.innerHTML = `
-  <div class="stat-grid">
-    ${statCard("blue", "i-teacher", sum.employees, "Employees", "active staff")}
-    ${statCard("green", "i-money", fmtMoney(sum.monthly_gross), "Monthly gross payroll", "basic + allowances")}
-    ${statCard("amber", "i-money", sum.last_run ? fmtMoney(sum.last_net) : "—", "Last run net", sum.last_run ? esc(sum.last_run.period_label) + " · " + esc(sum.last_run.status) : "no run yet")}
-    ${statCard("violet", "i-money", sum.last_run ? "KRA ready" : "—", "Statutory", "PAYE · SHIF · NSSF · Levy")}
-  </div>
-  <div class="tab-row">
-    <button class="tab-btn active" id="pr-tab-emp">Employees</button>
-    <button class="tab-btn" id="pr-tab-run">Process Payroll</button>
-    <button class="tab-btn" id="pr-tab-hist">Payslip History</button>
-    <button class="tab-btn" id="pr-tab-set">Settings</button>
-  </div>
-  <div id="pr-body"></div>`;
-  const tabs = { emp: renderEmployees, run: renderProcess, hist: renderHistory, set: renderSettings };
-  const setTab = (name) => {
-    $$(".tab-btn").forEach(b => b.classList.remove("active"));
-    $("#pr-tab-" + name).classList.add("active");
-    tabs[name]();
-  };
-  $("#pr-tab-emp").addEventListener("click", () => setTab("emp"));
-  $("#pr-tab-run").addEventListener("click", () => setTab("run"));
-  $("#pr-tab-hist").addEventListener("click", () => setTab("hist"));
-  $("#pr-tab-set").addEventListener("click", () => setTab("set"));
-  setTab(params.tab || "emp");
-}
-
-async function renderEmployees() {
-  const emp = await api("/api/payroll/employees");
-  $("#pr-body").innerHTML = `
-  <div class="toolbar">
-    <p style="color:var(--muted)">${emp.length} employees · tap edit to set salary &amp; bank details</p>
-    <div class="grow"></div>
-    <button class="btn btn-outline" onclick="exportExcel('payroll-employees.xlsx',['Name','TSC No','Subject','Basic','Allowances','Gross','KRA PIN','Bank','Account'],
-      ${JSON.stringify(emp.map(t => [t.first_name + " " + t.last_name, t.tsc_no || "", t.subject_name || "", t.basic_salary || 0, t.allowances || 0, (t.basic_salary || 0) + (t.allowances || 0), t.kra_pin || "", t.bank_name || "", t.bank_account || ""])).replace(/"/g, '&quot;')})">Excel</button>
-  </div>
-  <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>Employee</th><th>TSC No</th><th>Subject</th><th class="num">Basic Salary</th><th class="num">Allowances</th><th class="num">Gross</th><th>KRA PIN</th><th>Bank</th>${acctBtn('<th class="num">Actions</th>')}</tr></thead>
-    <tbody>
-      ${emp.map(t => `<tr>
-        <td>${avatarHtml(t.profile_pic, t.first_name + " " + t.last_name, "avatar-sm")}<b style="margin-left:8px">${esc(t.first_name + " " + t.last_name)}</b></td>
-        <td><span class="badge b-slate">${esc(t.tsc_no || "—")}</span></td>
-        <td>${esc(t.subject_name || "—")}</td>
-        <td class="num">${fmtMoney(t.basic_salary || 0)}</td>
-        <td class="num">${fmtMoney(t.allowances || 0)}</td>
-        <td class="num"><b>${fmtMoney((t.basic_salary || 0) + (t.allowances || 0))}</b></td>
-        <td><small>${esc(t.kra_pin || "—")}</small></td>
-        <td><small>${esc(t.bank_name || "—")} ${esc(t.bank_account || "")}</small></td>
-        ${acctBtn(`<td><div class="actions"><button class="ic-btn" title="Edit salary & bank" onclick="payrollEmployeeForm(${t.id})"><svg><use href="#i-edit"/></svg></button></div></td>`)}
-      </tr>`).join("")}
-    </tbody></table></div>`;
-}
-
-async function payrollEmployeeForm(tid) {
-  const emp = await api("/api/payroll/employees");
-  const t = emp.find(x => x.id === tid);
-  modal(`
-  <div class="modal-head"><h3>Payroll profile — ${esc(t.first_name + " " + t.last_name)}</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
-  <div class="modal-body"><div class="form-grid">
-    <div><label>Basic salary (KSh)</label><input id="pe-basic" class="input" type="number" step="500" value="${t.basic_salary || ""}"></div>
-    <div><label>Allowances (KSh)</label><input id="pe-allow" class="input" type="number" step="500" value="${t.allowances || ""}"></div>
-    <div><label>KRA PIN</label><input id="pe-kra" class="input" value="${esc(t.kra_pin || "")}"></div>
-    <div><label>NSSF No</label><input id="pe-nssf" class="input" value="${esc(t.nssf_no || "")}"></div>
-    <div><label>SHIF No</label><input id="pe-shif" class="input" value="${esc(t.shif_no || "")}"></div>
-    <div><label>Bank name</label><input id="pe-bank" class="input" value="${esc(t.bank_name || "")}"></div>
-    <div class="full"><label>Bank account</label><input id="pe-acct" class="input" value="${esc(t.bank_account || "")}"></div>
-  </div></div>
-  <div class="modal-foot">
-    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-primary" id="pe-save">Save</button>
-  </div>`);
-  $("#pe-save").addEventListener("click", async () => {
-    try {
-      await api("/api/payroll/employees/" + tid, { method: "PUT", body: {
-        basic_salary: $("#pe-basic").value ? Number($("#pe-basic").value) : null,
-        allowances: Number($("#pe-allow").value) || 0,
-        kra_pin: $("#pe-kra").value.trim(), nssf_no: $("#pe-nssf").value.trim(), shif_no: $("#pe-shif").value.trim(),
-        bank_name: $("#pe-bank").value.trim(), bank_account: $("#pe-acct").value.trim() } });
-      toast("Payroll profile updated");
-      closeModal(); openView("payroll", { tab: "emp" });
-    } catch (err) { toast(err.message, "err"); }
-  });
-}
-
-async function renderProcess() {
-  const runs = await api("/api/payroll/runs");
-  const now = new Date();
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const m = lastMonth.getMonth() + 1, y = lastMonth.getFullYear();
-  $("#pr-body").innerHTML = `
-  <div class="card">
-    <div class="card-head"><h3>Process a payroll run</h3><p>Computes PAYE, SHIF (2.75%), NSSF (6% capped at 36,000) and Housing Levy (1.5%) for every active employee.</p></div>
-    <div class="form-grid" style="grid-template-columns:1fr 1fr auto;align-items:end">
-      <div><label>Month</label><select id="pr-month" class="input">
-        ${["January","February","March","April","May","June","July","August","September","October","November","December"].map((mn, i) => `<option value="${i + 1}" ${i + 1 === m ? "selected" : ""}>${mn}</option>`).join("")}
-      </select></div>
-      <div><label>Year</label><input id="pr-year" class="input" type="number" value="${y}"></div>
-      <button class="btn btn-primary" id="pr-run"><svg><use href="#i-money"/></svg> Run Payroll</button>
-    </div>
-    <p id="pr-msg" style="font-size:12.5px;color:var(--muted);margin-top:10px"></p>
-  </div>
-  <div id="pr-run-result" style="margin-top:16px"></div>`;
-  $("#pr-run").addEventListener("click", async () => {
-    const btn = $("#pr-run"); btn.disabled = true; btn.textContent = "Processing…";
-    $("#pr-msg").textContent = "";
-    try {
-      const r = await api("/api/payroll/run", { method: "POST", body: { month: Number($("#pr-month").value), year: Number($("#pr-year").value) } });
-      toast("Payroll run created — " + r.label + " · " + r.count + " employees");
-      await renderRunResult(r.run_id);
-    } catch (err) { $("#pr-msg").textContent = "❌ " + err.message; }
-    finally { btn.disabled = false; btn.textContent = "Run Payroll"; }
-  });
-  // show the most recent run if exists
-  if (runs.length) renderRunResult(runs[0].id);
-}
-async function renderRunResult(rid) {
-  const d = await api("/api/payroll/run/" + rid);
-  const slips = d.slips;
-  const totalNet = slips.reduce((a, s) => a + s.net_pay, 0);
-  $("#pr-run-result").innerHTML = `
-  <div class="card" style="padding:0;overflow:auto">
-    <div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px">
-      <div><b style="font-size:15px">${esc(d.run.period_label)}</b>
-        <span class="badge ${d.run.status === "Paid" ? "b-green" : "b-amber"}" style="margin-left:8px">${esc(d.run.status)}</span>
-        <p style="font-size:12px;color:var(--muted);margin-top:3px">${slips.length} employees · Net total ${fmtMoney(totalNet)}</p></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${d.run.status !== "Paid" ? `<button class="btn btn-primary btn-sm" onclick="payRun(${d.run.id})"><svg><use href="#i-check"/></svg> Mark as Paid</button>` : ""}
-        <button class="btn btn-outline btn-sm" onclick="printPayslips(${d.run.id})"><svg><use href="#i-print"/></svg> Print payslips</button>
-      </div>
-    </div>
-    <table class="tbl">
-      <thead><tr><th>Employee</th><th class="num">Basic</th><th class="num">Allow</th><th class="num">Gross</th><th class="num">PAYE</th><th class="num">SHIF</th><th class="num">NSSF</th><th class="num">Levy</th><th class="num">Net Pay</th><th>Status</th><th class="num">Slip</th></tr></thead>
-      <tbody>
-        ${slips.map(s => `<tr>
-          <td><b>${esc(s.first_name + " " + s.last_name)}</b></td>
-          <td class="num">${fmtMoney(s.basic_salary)}</td>
-          <td class="num">${fmtMoney(s.allowances)}</td>
-          <td class="num">${fmtMoney(s.gross)}</td>
-          <td class="num">${fmtMoney(s.paye)}</td>
-          <td class="num">${fmtMoney(s.shif)}</td>
-          <td class="num">${fmtMoney(s.nssf)}</td>
-          <td class="num">${fmtMoney(s.housing)}</td>
-          <td class="num"><b style="color:var(--green-dark)">${fmtMoney(s.net_pay)}</b></td>
-          <td><span class="badge ${s.paid ? "b-green" : "b-amber"}">${s.paid ? "Paid" : "Due"}</span></td>
-          <td><div class="actions"><button class="ic-btn" onclick="showPayslip(${s.id})"><svg><use href="#i-receipt"/></svg></button></div></td>
-        </tr>`).join("")}
-      </tbody></table>
-  </div>`;
-}
-async function payRun(rid) {
-  try { await api("/api/payroll/run/" + rid + "/pay", { method: "POST" }); toast("Payroll marked as paid"); openView("payroll", { tab: "run" }); }
-  catch (err) { toast(err.message, "err"); }
-}
-async function renderHistory() {
-  const runs = await api("/api/payroll/runs");
-  $("#pr-body").innerHTML = `
-  <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>Period</th><th>Status</th><th class="num">Employees</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net Paid</th><th>Prepared by</th><th class="num">Actions</th></tr></thead>
-    <tbody>
-      ${runs.map(r => `<tr>
-        <td><b>${esc(r.period_label)}</b></td>
-        <td><span class="badge ${r.status === "Paid" ? "b-green" : "b-amber"}">${esc(r.status)}</span></td>
-        <td class="num">${r.employees}</td>
-        <td class="num">${fmtMoney(r.gross_total || 0)}</td>
-        <td class="num">${fmtMoney(r.deductions_total || 0)}</td>
-        <td class="num"><b style="color:var(--green-dark)">${fmtMoney(r.net_total || 0)}</b></td>
-        <td><small>${esc(r.prepared_by || "—")}</small></td>
-        <td><div class="actions">
-          <button class="ic-btn" title="View" onclick="openView('payroll',{tab:'run'});setTimeout(()=>renderRunResult(${r.id}),300)"><svg><use href="#i-eye"/></svg></button>
-          <button class="ic-btn" title="Delete" onclick="deleteRun(${r.id})"><svg><use href="#i-close"/></svg></button>
-        </div></td>
-      </tr>`).join("") || '<tr><td colspan="8" style="text-align:center;color:var(--muted)">No payroll runs yet</td></tr>'}
-    </tbody></table></div>`;
-}
-async function deleteRun(rid) {
-  try { await api("/api/payroll/run/" + rid, { method: "DELETE" }); toast("Run deleted"); openView("payroll", { tab: "hist" }); }
-  catch (err) { toast(err.message, "err"); }
-}
-async function renderSettings() {
-  const s = await api("/api/payroll/settings");
-  $("#pr-body").innerHTML = `
-  <div class="card" style="max-width:640px">
-    <div class="card-head"><h3>Statutory deduction settings</h3><p>Kenyan rates (2025) — editable to match current legislation</p></div>
-    <div class="form-grid">
-      <div><label>PAYE low band (KSh)</label><input id="ps1" class="input" type="number" value="${s.paye_low}"></div>
-      <div><label>PAYE low rate %</label><input id="ps2" class="input" type="number" step="0.5" value="${s.paye_low_rate * 100}"></div>
-      <div><label>PAYE mid band (KSh)</label><input id="ps3" class="input" type="number" value="${s.paye_mid}"></div>
-      <div><label>PAYE mid rate %</label><input id="ps4" class="input" type="number" step="0.5" value="${s.paye_mid_rate * 100}"></div>
-      <div><label>PAYE high rate %</label><input id="ps5" class="input" type="number" step="0.5" value="${s.paye_high_rate * 100}"></div>
-      <div><label>Personal relief (KSh)</label><input id="ps6" class="input" type="number" value="${s.personal_relief}"></div>
-      <div><label>SHIF rate %</label><input id="ps7" class="input" type="number" step="0.05" value="${s.shif_rate * 100}"></div>
-      <div><label>NSSF rate %</label><input id="ps8" class="input" type="number" step="0.5" value="${s.nssf_rate * 100}"></div>
-      <div><label>NSSF cap (KSh)</label><input id="ps9" class="input" type="number" value="${s.nssf_cap}"></div>
-      <div><label>Housing Levy rate %</label><input id="ps10" class="input" type="number" step="0.25" value="${s.housing_rate * 100}"></div>
-    </div>
-    <div style="margin-top:14px"><button class="btn btn-primary" id="ps-save">Save Settings</button></div>
-  </div>`;
-  $("#ps-save").addEventListener("click", async () => {
-    await api("/api/payroll/settings", { method: "PUT", body: {
-      paye_low: Number($("#ps1").value), paye_low_rate: Number($("#ps2").value) / 100,
-      paye_mid: Number($("#ps3").value), paye_mid_rate: Number($("#ps4").value) / 100,
-      paye_high_rate: Number($("#ps5").value) / 100, personal_relief: Number($("#ps6").value),
-      shif_rate: Number($("#ps7").value) / 100, nssf_rate: Number($("#ps8").value) / 100,
-      nssf_cap: Number($("#ps9").value), housing_rate: Number($("#ps10").value) / 100 } });
-    toast("Payroll settings saved"); openView("payroll", { tab: "set" });
-  });
-}
-
-/* ---- payslip ---- */
-function payslipHtml(d) {
-  const s = d.school || {};
-  const row = (k, v) => `<tr><td class="lbl">${k}</td><td class="val">${v}</td></tr>`;
-  return `
-  <div class="receipt-sheet" style="max-width:640px">
-    <div class="r-head2">
-      <div class="r-logo">
-        ${s.school_logo ? `<img src="${esc(s.school_logo)}" alt="">` : `<div class="r-crest">${esc(monogramOf(s.school_name || "School"))}</div>`}
-      </div>
-      <div class="r-org"><h2>${esc((s.school_name || "SCHOOL").toUpperCase())}</h2>
-        <p class="r-contact">${esc(s.school_address || "")} · ${esc(s.school_phone || "")}</p></div>
-      <div class="r-rect"><div class="k">PAYSLIP</div><div class="v">${esc(d.period_label)}</div></div>
-    </div>
-    <table class="receipt-table" style="margin-top:12px">
-      <tr><td class="lbl">Employee</td><td class="val"><b>${esc(d.first_name + " " + d.last_name)}</b></td>
-        <td class="lbl">TSC No</td><td class="val">${esc(d.tsc_no || "—")}</td></tr>
-      <tr><td class="lbl">KRA PIN</td><td class="val">${esc(d.kra_pin || "—")}</td>
-        <td class="lbl">NSSF / SHIF</td><td class="val">${esc(d.nssf_no || "—")} / ${esc(d.shif_no || "—")}</td></tr>
-      <tr><td class="lbl">Bank</td><td class="val">${esc(d.bank_name || "—")} ${esc(d.bank_account || "")}</td>
-        <td class="lbl">Period</td><td class="val">${esc(d.period_label)}</td></tr>
-    </table>
-    <div class="r-title" style="margin-top:12px">EARNINGS & DEDUCTIONS</div>
-    <table class="receipt-table">
-      <tr><td class="lbl">Basic Salary</td><td class="val">${fmtMoney(d.basic_salary)}</td>
-        <td class="lbl">PAYE (Tax)</td><td class="val" style="color:var(--red)">${fmtMoney(d.paye)}</td></tr>
-      <tr><td class="lbl">Allowances</td><td class="val">${fmtMoney(d.allowances)}</td>
-        <td class="lbl">SHIF</td><td class="val" style="color:var(--red)">${fmtMoney(d.shif)}</td></tr>
-      <tr><td class="lbl">Other additions</td><td class="val">—</td>
-        <td class="lbl">NSSF</td><td class="val" style="color:var(--red)">${fmtMoney(d.nssf)}</td></tr>
-      <tr><td class="lbl">Gross Pay</td><td class="val amt">${fmtMoney(d.gross)}</td>
-        <td class="lbl">Housing Levy</td><td class="val" style="color:var(--red)">${fmtMoney(d.housing)}</td></tr>
-      <tr><td></td><td></td>
-        <td class="lbl">Total Deductions</td><td class="val" style="color:var(--red)">${fmtMoney(d.total_deductions)}</td></tr>
-    </table>
-    <div class="r-balance">
-      <div><span>Gross Pay</span><b>${fmtMoney(d.gross)}</b></div>
-      <div><span>Deductions</span><b>${fmtMoney(d.total_deductions)}</b></div>
-      <div><span>Net Pay</span><b style="color:var(--green-dark)">${fmtMoney(d.net_pay)}</b></div>
-    </div>
-    <div class="r-words">Net pay in words: <b>${esc(d.amount_words)}</b></div>
-    <div class="r-thanks">This payslip was generated by ElimuPro. Please keep it for your records.</div>
-    <div class="r-sign3">
-      <div><div class="line2">Prepared by</div><small>${esc(d.school.school_name || "")}</small></div>
-      <div><div class="line2">Accounts</div></div>
-      <div><div class="line2">Received by (sign)</div></div>
-    </div>
-  </div>`;
-}
-async function showPayslip(pid) {
-  const d = await api("/api/payroll/payslip/" + pid);
-  document.body.classList.add("receipt-mode");
-  modal(`
-  <div class="modal-head no-print"><h3>Payslip — ${esc(d.first_name + " " + d.last_name)} · ${esc(d.period_label)}</h3>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-primary btn-sm" onclick="window.print()"><svg><use href="#i-print"/></svg> Print</button>
-      <button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button>
-    </div></div>
-  <div class="modal-body" style="background:#e5e7eb"><div id="receipt-sheet">${payslipHtml(d)}</div></div>`);
-}
-async function printPayslips(rid) {
-  const d = await api("/api/payroll/run/" + rid);
-  document.body.classList.add("print-mode");
-  const area = document.createElement("div");
-  area.style.display = "none";
-  area.id = "payslip-print-area";
-  area.innerHTML = `<div class="idc-batch-title">${esc(d.run.period_label)} — Payroll Payslips</div>` +
-    d.slips.map(s => `<div class="idc-pair">${payslipHtml({ ...s, school: { school_name: state.settings.school_name, school_logo: state.settings.school_logo, school_address: state.settings.school_address, school_phone: state.settings.school_phone }, amount_words: "" })}</div>`).join("");
-  document.body.appendChild(area);
-  setTimeout(() => { window.focus(); window.print(); }, 200);
-  window.addEventListener("afterprint", () => { area.remove(); document.body.classList.remove("print-mode"); }, { once: true });
-  setTimeout(() => { area.remove(); document.body.classList.remove("print-mode"); }, 30000);
-}
-
-/* ============================================================
-   SCHOOLS — platform admin (superadmin): list & create schools
-   Each school is fully isolated: own database, branding, logins.
-   ============================================================ */
-async function view_schools(el) {
-  el.innerHTML = `<div class="loader"><div class="spinner"></div><p>Loading schools…</p></div>`;
-  const schools = await api("/api/schools");
-  el.innerHTML = `
-  <div class="welcome-banner">
-    <div>
-      <h2>Platform — ${esc(schools.length)} school${schools.length === 1 ? "" : "s"}</h2>
-      <p>Each school is fully isolated: its own database, branding, logins and data. Add a school to onboard a new client.</p>
-    </div>
-    <button class="btn btn-primary" onclick="schoolForm()" style="background:#fff;color:var(--green-dark)"><svg><use href="#i-plus"/></svg> Add School</button>
-  </div>
-  <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>School</th><th>Slug</th><th class="num">Students</th><th class="num">Teachers</th><th>Created</th><th>Status</th><th class="num">Actions</th></tr></thead>
-    <tbody>
-      ${schools.map(s => `
-        <tr>
-          <td><b>${esc(s.name)}</b></td>
-          <td><code>${esc(s.slug)}</code></td>
-          <td class="num">${s.students}</td>
-          <td class="num">${s.teachers}</td>
-          <td>${fmtDate(s.created_at)}</td>
-          <td><span class="badge ${s.active ? "b-green" : "b-red"}">${s.active ? "Active" : "Disabled"}</span></td>
-          <td><div class="actions">
-            <button class="ic-btn" title="${s.active ? "Disable" : "Enable"}" onclick="toggleSchool(${s.id},${s.active ? 0 : 1})"><svg><use href="#i-close"/></svg></button>
-          </div></td>
-        </tr>`).join("")}
-    </tbody></table></div>
-  <div class="card" style="margin-top:16px">
-    <div class="card-head"><h3>How it works</h3></div>
-    <p style="font-size:13px;color:var(--slate)">Create a school → it gets its own database with its own <b>admin</b> login. Schools log in through their own subdomain
-      (<code>&lt;slug&gt;.yourdomain.com</code>) so every school can use the same usernames. Branding, students and all data live per school and are fully isolated.</p>
-  </div>`;
-}
-
-async function schoolForm() {
-  modal(`
-  <div class="modal-head"><h3>Add School</h3><button class="ic-btn" onclick="closeModal()"><svg><use href="#i-close"/></svg></button></div>
-  <div class="modal-body"><div class="form-grid">
-    <div class="full"><label>School name *</label><input id="sc-name" class="input" placeholder="e.g. Kisii High School"></div>
-    <div class="full"><label>Slug * <small style="font-weight:500;color:var(--muted)">lowercase letters/numbers/hyphens — used for their subdomain</small></label>
-      <input id="sc-slug" class="input" placeholder="e.g. kisii-high"></div>
-    <div class="full">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="sc-sample" style="accent-color:var(--green);width:16px;height:16px" checked>
-        <span><b>Load sample data</b><br><small style="font-weight:400;color:var(--muted)">Untick for a fresh empty school (schema, subjects, classes &amp; admin login only)</small></span>
-      </label>
-    </div>
-    <div><label>Admin username</label><input id="sc-admin" class="input" value="admin"></div>
-    <div><label>Admin password</label><input id="sc-pass" class="input" value="admin123"></div>
-    <p class="full" style="font-size:12px;color:var(--muted)">Creating takes a few seconds. The school's admin logs in at <b>&lt;slug&gt;.yourdomain.com</b> with these credentials.</p>
-  </div></div>
-  <div class="modal-foot">
-    <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-primary" id="sc-save"><svg><use href="#i-plus"/></svg> Create School</button>
-  </div>`);
-  $("#sc-save").addEventListener("click", async () => {
-    const btn = $("#sc-save");
-    btn.disabled = true; btn.textContent = "Creating school…";
-    try {
-      await api("/api/schools", { method: "POST", body: {
-        name: $("#sc-name").value.trim(), slug: $("#sc-slug").value.trim(),
-        sample: $("#sc-sample").checked, admin_user: $("#sc-admin").value.trim(),
-        admin_pass: $("#sc-pass").value.trim() } });
-      toast("School created — its admin can log in now");
-      closeModal(); openView("schools");
-    } catch (err) { toast(err.message, "err"); btn.disabled = false; btn.textContent = "Create School"; }
-  });
-}
-
-async function toggleSchool(id, active) {
-  try {
-    await api("/api/schools/" + id, { method: "PUT", body: { active } });
-    toast(active ? "School enabled" : "School disabled (its logins are blocked)");
-    openView("schools");
-  } catch (err) { toast(err.message, "err"); }
-}
-
-/* ============================================================
    PARENT / GUARDIAN PORTAL
    ============================================================ */
 async function gChildren() {
@@ -5260,11 +4683,4 @@ function settingsGateway() {
 /* ============================================================
    BOOT
    ============================================================ */
-try { boot(); } catch (e) { console.error("boot failed", e); }
-
-// tell the inline diagnostic that the app shell loaded & booted
-window.ELIMUPRO_APP_LOADED = true;
-if (window.__epVersion) {
-  var _v = document.getElementById("login-ver");
-  if (_v) _v.textContent = "build " + window.__epVersion;
-}
+boot();

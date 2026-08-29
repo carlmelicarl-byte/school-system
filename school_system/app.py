@@ -508,7 +508,10 @@ def finance_snapshot(term, year):
 # ------------------------------------------------------------------ pages
 @app.route("/")
 def index():
-    return render_template("index.html")
+    from flask import make_response
+    resp = make_response(render_template("index.html"))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 @app.route("/static/<path:path>")
 def static_files(path):
@@ -667,6 +670,11 @@ def reset_password():
     cur.commit()
     log_activity("Password reset", f"{uname} reset their password")
     return jsonify({"ok": True})
+
+@app.route("/api/health")
+def health():
+    return jsonify({"ok": True, "app": "ElimuPro", "version": "v29",
+                    "time": datetime.datetime.now().isoformat()})
 
 @app.route("/api/me")
 @any_required

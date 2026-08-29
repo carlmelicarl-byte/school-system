@@ -49,13 +49,6 @@ CREATE TABLE IF NOT EXISTS teachers (
   subject_id INTEGER REFERENCES subjects(id),
   employment_type TEXT DEFAULT 'Permanent',
   profile_pic TEXT,
-  basic_salary REAL,
-  allowances REAL DEFAULT 0,
-  kra_pin TEXT,
-  nssf_no TEXT,
-  shif_no TEXT,
-  bank_name TEXT,
-  bank_account TEXT,
   active INTEGER DEFAULT 1
 );
 
@@ -304,34 +297,6 @@ CREATE TABLE IF NOT EXISTS homework (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS payroll_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  month INTEGER NOT NULL,
-  year INTEGER NOT NULL,
-  period_label TEXT NOT NULL,
-  status TEXT DEFAULT 'Draft',
-  prepared_by TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(month, year)
-);
-
-CREATE TABLE IF NOT EXISTS payroll_payslips (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_id INTEGER NOT NULL REFERENCES payroll_runs(id),
-  teacher_id INTEGER NOT NULL REFERENCES teachers(id),
-  basic_salary REAL,
-  allowances REAL,
-  gross REAL,
-  paye REAL,
-  shif REAL,
-  nssf REAL,
-  housing REAL,
-  other_deductions REAL DEFAULT 0,
-  total_deductions REAL,
-  net_pay REAL,
-  paid INTEGER DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
@@ -437,17 +402,10 @@ def school_days(count, start=datetime.date(2026, 8, 1)):
         d += datetime.timedelta(days=1)
     return days
 
-def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
-            admin_user="admin", admin_pass="admin123"):
-    """Seed a school database at db_path (defaults to DB_PATH).
-
-    sample=True  -> full demo data (students, scores, payments...)
-    sample=False -> fresh empty school: schema, subjects, classes, admin login only
-    """
-    db_path = db_path or DB_PATH
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    conn = sqlite3.connect(db_path)
+def seed():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.executescript(SCHEMA)
@@ -468,32 +426,25 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
     teachers = []
     for i, (fn, ln, ttl) in enumerate(zip(teacher_first, teacher_last, teacher_titles)):
         gender = "Female" if ttl == "Madam" else "Male"
-        salary = rnd.choice([28000, 32000, 36000, 40000, 45000, 52000]) if i < 8 else rnd.choice([22000, 25000, 28000])
         teachers.append((f"TSC-{202001+i}", fn, ln, gender, rand_phone(),
-                         f"{fn.lower()}.{ln.lower()}@greenfield.ac.ke", subj_rows[teach_subj_idx[i]]["id"], "Permanent",
-                         salary, rnd.choice([0, 2000, 4000, 6000]),
-                         f"A{i:06d}{rnd.choice('ABCDEFGH')}Z", f"NS{i:05d}{rnd.randint(10,99)}",
-                         f"SH{i:05d}", rnd.choice(["KCB","Equity","Co-op","Stanbic","NCBA"]),
-                         f"{rnd.randint(100,999)}-{rnd.randint(1000,9999)}-{rnd.randint(10,99)}"))
-    cur.executemany("""INSERT INTO teachers(tsc_no,first_name,last_name,gender,phone,email,subject_id,employment_type,
-                                            basic_salary,allowances,kra_pin,nssf_no,shif_no,bank_name,bank_account)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", teachers)
+                         f"{fn.lower()}.{ln.lower()}@greenfield.ac.ke", subj_rows[teach_subj_idx[i]]["id"], "Permanent"))
+    cur.executemany("""INSERT INTO teachers(tsc_no,first_name,last_name,gender,phone,email,subject_id,employment_type)
+                       VALUES(?,?,?,?,?,?,?,?)""", teachers)
     teacher_ids = [r["id"] for r in cur.execute("SELECT id FROM teachers ORDER BY id")]
     for i, tid in enumerate(teacher_ids):
         cur.execute("UPDATE subjects SET teacher_id=? WHERE id=?", (tid, subj_rows[teach_subj_idx[i]]["id"]))
 
     # classes --------------------------------------------------------------
-    _sz = [8, 8, 12, 11, 12, 11, 12, 11, 10] if sample else [0] * 9
     class_defs = [
-        ("Grade 1 East", "Grade 1", "East", teacher_ids[0], _sz[0]),
-        ("Grade 1 West", "Grade 1", "West", teacher_ids[1], _sz[1]),
-        ("Grade 7 East", "Grade 7", "East", teacher_ids[2], _sz[2]),
-        ("Grade 7 West", "Grade 7", "West", teacher_ids[3], _sz[3]),
-        ("Grade 8 East", "Grade 8", "East", teacher_ids[4], _sz[4]),
-        ("Grade 8 West", "Grade 8", "West", teacher_ids[5], _sz[5]),
-        ("Grade 9 East", "Grade 9", "East", teacher_ids[6], _sz[6]),
-        ("Grade 9 West", "Grade 9", "West", teacher_ids[7], _sz[7]),
-        ("Grade 10 East", "Grade 10", "East", teacher_ids[8], _sz[8]),
+        ("Grade 1 East", "Grade 1", "East", teacher_ids[0], 8),
+        ("Grade 1 West", "Grade 1", "West", teacher_ids[1], 8),
+        ("Grade 7 East", "Grade 7", "East", teacher_ids[2], 12),
+        ("Grade 7 West", "Grade 7", "West", teacher_ids[3], 11),
+        ("Grade 8 East", "Grade 8", "East", teacher_ids[4], 12),
+        ("Grade 8 West", "Grade 8", "West", teacher_ids[5], 11),
+        ("Grade 9 East", "Grade 9", "East", teacher_ids[6], 12),
+        ("Grade 9 West", "Grade 9", "West", teacher_ids[7], 11),
+        ("Grade 10 East", "Grade 10", "East", teacher_ids[8], 10),
     ]
     cur.executemany("""INSERT INTO classes(name,grade,stream,academic_year,capacity,class_teacher_id)
                        VALUES(?,?,?,?,?,?)""",
@@ -716,7 +667,7 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
     cur.executemany("INSERT INTO attendance(date,class_id,student_id,status) VALUES(?,?,?,?)", att_rows)
 
     # library ----------------------------------------------------------------
-    books = [] if not sample else [
+    books = [
         ("Blossoms of the Savannah", "Henry Ole Kulet", "9789966000654", "Oxford University Press", "Set Book", 2008, 12, "Shelf A1"),
         ("The River and the Source", "Margaret Ogola", "9780195731214", "Phoenix", "Set Book", 1994, 10, "Shelf A1"),
         ("A Doll's House", "Henrik Ibsen", "9789966081296", "East African Educational", "Set Book", 1879, 8, "Shelf A2"),
@@ -791,7 +742,6 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
         cur.execute("UPDATE books SET available_copies=? WHERE id=?", (max(0, total - active), bid))
 
     # conduct / discipline records (CBC holistic development) -----------------
-    conduct_rows = []
     merit_cats = ["Academic Excellence", "Good Conduct", "Community Service", "Sports Achievement",
                   "Cleanliness", "Punctuality", "Leadership", "Honesty"]
     demerit_cats = ["Late Coming", "Noise Making", "Truancy", "Fighting", "Dishonesty",
@@ -804,7 +754,7 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
                    "Caught using a phone in class", "Involved in a physical alteration in the field", "Failed to submit homework twice",
                    "Left the compound during break", "Vandalised a classroom notice board", "Disrespectful language to a teacher",
                    "Cheating in a continuous assessment", "Noise-making during assembly", "Incomplete PE uniform"]
-
+    conduct_rows = []
     teacher_names = [r["first_name"] + " " + r["last_name"] for r in cur.execute("SELECT first_name, last_name FROM teachers")]
     term3_start = _dt2.date(2026, 5, 4)
     for st in student_ids:
@@ -874,7 +824,7 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
 
     # settings --------------------------------------------------------------
     settings = {
-        "school_name": school_name,
+        "school_name": "Greenfield Academy",
         "school_motto": "Strive for Excellence",
         "school_address": "P.O. Box 1020, Kisii",
         "school_phone": "+254 712 345 678",
@@ -898,7 +848,7 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
         h = hashlib.scrypt(p.encode(), salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
         return f"scrypt${salt}${h.hex()}"
     users = [
-        (admin_user, phash(admin_pass), "School Administrator", "admin", None),
+        ("admin", phash("admin123"), "School Administrator", "admin", None),
         ("teacher", phash("teacher123"), "Madam Jane Atieno", "teacher", teacher_ids[0]),
         ("jmwangi", phash("teacher123"), "Mr Peter Mwangi", "teacher", teacher_ids[1]),
         ("accounts", phash("accounts123"), "Finance Officer", "accounts", None),
@@ -908,35 +858,6 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
     for uname, ph, full, role, tid in users:
         cur.execute("INSERT INTO users(username,password_hash,full_name,role,teacher_id) VALUES(?,?,?,?,?)",
                     (uname, ph, full, role, tid))
-
-    # payroll ---------------------------------------------------------------
-    def _paye(taxable, relief):
-        t = max(0, taxable)
-        p = 0
-        if t > 24000:
-            p += min(t, 32333) * 0.25 - 24000 * 0.10 if False else 0
-        p = 0
-        p += min(t, 24000) * 0.10
-        if t > 24000:
-            p += (min(t, 32333) - 24000) * 0.25
-        if t > 32333:
-            p += (t - 32333) * 0.30
-        return max(0, p - relief)
-    run_id = cur.execute("""INSERT INTO payroll_runs(month,year,period_label,status,prepared_by)
-                            VALUES(7,2026,'July 2026','Paid','School Administrator')""").lastrowid
-    _staff = cur.execute("SELECT id, basic_salary, allowances FROM teachers WHERE active=1").fetchall()
-    for t in _staff:
-        gross = (t["basic_salary"] or 0) + (t["allowances"] or 0)
-        paye = _paye(gross, 2400)
-        shif = round(gross * 0.0275, 2)
-        nssf = round(min(gross, 36000) * 0.06, 2)
-        housing = round(gross * 0.015, 2)
-        total_d = round(paye + shif + nssf + housing, 2)
-        cur.execute("""INSERT INTO payroll_payslips(run_id,teacher_id,basic_salary,allowances,gross,paye,shif,nssf,housing,
-                                                    total_deductions,net_pay,paid)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,1)""",
-                    (run_id, t["id"], t["basic_salary"], t["allowances"], gross, paye, shif, nssf, housing,
-                     total_d, round(gross - total_d, 2)))
 
     # guardian (parent) accounts -------------------------------------------
     guardian_links = []
@@ -967,24 +888,6 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
         cur.execute("INSERT INTO activity_log(user_id,action,detail,created_at) VALUES(?,?,?,?)",
                     (u["id"] if u else None, action, detail, ts))
 
-    # fresh/empty school mode: strip school-specific content so the client starts clean
-    if not sample:
-        for _tbl in ("books", "school_events", "announcements", "homework",
-                     "payroll_runs", "payroll_payslips", "conduct_records",
-                     "transport_routes", "transport_assignments", "transport_log",
-                     "sms_log", "activity_log"):
-            try:
-                cur.execute(f"DELETE FROM {_tbl}")
-            except Exception:
-                pass
-        # clear payroll/demo details from teachers so the client fills their own
-        try:
-            cur.execute("""UPDATE teachers SET basic_salary=NULL, allowances=0,
-                            kra_pin=NULL, nssf_no=NULL, shif_no=NULL,
-                            bank_name=NULL, bank_account=NULL""")
-        except Exception:
-            pass
-
     conn.commit()
     conn.close()
     print(f"Seeded OK: {len(student_ids)} students, {len(teacher_ids)} teachers, "
@@ -993,45 +896,7 @@ def seed_db(db_path=None, school_name="Greenfield Academy", sample=True,
           f"{len(route_ids)} routes, {len(assign_rows)} transport assignments, "
           f"{len(tt_rows)} timetable slots, {len(parent_users)} guardian accounts, "
           f"{len(book_ids)} books, {len(issue_rows)} library records, "
-          f"{len(conduct_rows)} conduct records, {len(events)} events, {len(hw_rows)} homework assignments, payroll ready.")
-
-def seed():
-    """Default: seed the main school (school.db) and register it in meta.db."""
-    seed_db(DB_PATH, school_name="Greenfield Academy", sample=True)
-    register_school("greenfield", "Greenfield Academy", DB_PATH)
-
-def register_school(slug, name, db_path, active=1):
-    """Register (or update) a school in the platform meta database (relative path)."""
-    import os as _os
-    import hashlib as _hl
-    meta_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "meta.db")
-    if _os.path.isabs(db_path):
-        db_path = _os.path.relpath(db_path, _os.path.dirname(_os.path.abspath(__file__)))
-    meta = sqlite3.connect(meta_path)
-    meta.execute("""CREATE TABLE IF NOT EXISTS schools (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        slug TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        db_path TEXT NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        active INTEGER DEFAULT 1)""")
-    meta.execute("""CREATE TABLE IF NOT EXISTS superusers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        full_name TEXT,
-        active INTEGER DEFAULT 1)""")
-    meta.execute("""INSERT INTO schools(slug,name,db_path,active) VALUES(?,?,?,?)
-                    ON CONFLICT(slug) DO UPDATE SET name=excluded.name, db_path=excluded.db_path""",
-                 (slug, name, db_path, active))
-    su = meta.execute("SELECT id FROM superusers WHERE username='superadmin'").fetchone()
-    if not su:
-        salt = _os.urandom(16).hex()
-        h = _hl.scrypt(b"admin123", salt=salt.encode(), n=2 ** 14, r=8, p=1, dklen=32)
-        meta.execute("INSERT INTO superusers(username,password_hash,full_name) VALUES(?,?,?)",
-                     ("superadmin", f"scrypt${salt}${h.hex()}", "Platform Administrator"))
-    meta.commit()
-    meta.close()
+          f"{len(conduct_rows)} conduct records, {len(events)} events, {len(hw_rows)} homework assignments.")
 
 if __name__ == "__main__":
     seed()
