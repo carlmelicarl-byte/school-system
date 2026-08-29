@@ -5243,3 +5243,10 @@ function settingsGateway() {
    BOOT
    ============================================================ */
 try { boot(); } catch (e) { console.error("boot failed", e); }
+
+// tell the inline diagnostic that the app shell loaded & booted
+window.ELIMUPRO_APP_LOADED = true;
+if (window.__epVersion) {
+  var _v = document.getElementById("login-ver");
+  if (_v) _v.textContent = "build " + window.__epVersion;
+}

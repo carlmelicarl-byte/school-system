@@ -671,6 +671,11 @@ def reset_password():
     log_activity("Password reset", f"{uname} reset their password")
     return jsonify({"ok": True})
 
+@app.route("/api/health")
+def health():
+    return jsonify({"ok": True, "app": "ElimuPro", "version": "v29",
+                    "time": datetime.datetime.now().isoformat()})
+
 @app.route("/api/me")
 @any_required
 def me():

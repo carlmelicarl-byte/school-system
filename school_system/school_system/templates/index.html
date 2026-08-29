@@ -4,7 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ElimuPro — School Management System</title>
-<link rel="stylesheet" href="/static/css/style.css?v=29">
+<link rel="stylesheet" href="/static/css/style.css?v=30">
+<style>
+  /* shown only if the app shell (css/js) fails to load — e.g. static file preview */
+  #ep-preview-note{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#0b1226;color:#fff;z-index:999999;font:15px/1.7 system-ui,sans-serif;padding:30px;text-align:center}
+  #ep-preview-note h2{margin:0 0 10px;color:#4ade80;font-size:26px}
+  #ep-preview-note code{background:rgba(255,255,255,.12);border-radius:8px;padding:8px 14px;display:inline-block;
+    font-family:ui-monospace,monospace;font-size:13px}
+</style>
+<script>
+(function(){
+  window.__epVersion = "v30";
+  // 2.5s after load, if the real app didn't boot, show a helpful notice instead of a silent white page
+  setTimeout(function(){
+    if (window.ELIMUPRO_APP_LOADED) return;
+    var d = document.createElement("div");
+    d.id = "ep-preview-note";
+    d.innerHTML = "<div><h2>ElimuPro</h2>" +
+      "<p style='margin:0 0 6px'>This is the <b>static file preview</b> — it cannot run the app (no styles/scripts load here).</p>" +
+      "<p style='margin:0 0 10px;opacity:.85'>Please open the <b>live app preview</b> in this chat, or run the server:</p>" +
+      "<code>python3 app.py  →  http://localhost:8000</code>" +
+      "<p style='margin:12px 0 0;opacity:.6;font-size:12px'>If you ARE on the live app, hard-refresh (Ctrl+Shift+R) to clear a stale cached version.</p></div>";
+    document.body.appendChild(d);
+  }, 2500);
+})();
+</script>
 </head>
 <body>
 
@@ -128,7 +153,7 @@
           <p class="forgot">Contact the school office if you need help.</p>
         </div>
       </div>
-      <p class="login-copy anim-up delay-4">© <span id="login-year"></span> ElimuPro · Secure school management</p>
+      <p class="login-copy anim-up delay-4">© <span id="login-year"></span> ElimuPro · Secure school management · <span id="login-ver"></span></p>
     </div>
   </div>
 </div>
@@ -237,6 +262,6 @@
   <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1.5L8 22l2-1.5L12 22l2-1.5L16 22l2-1.5L20 22V2l-2 1.5L16 2l-2 1.5L12 2l-2 1.5L8 2 6 3.5 4 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
 </svg>
 
-<script src="/static/js/app.js?v=29"></script>
+<script src="/static/js/app.js?v=30"></script>
 </body>
 </html>

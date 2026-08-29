@@ -6,11 +6,11 @@
    - When back online the app auto-syncs queued changes
    ============================================================ */
 "use strict";
-const CACHE = "elimupro-v14";
+const CACHE = "elimupro-v15";
 const SHELL = [
   "/",
-  "/static/css/style.css?v=29",
-  "/static/js/app.js?v=29",
+  "/static/css/style.css?v=30",
+  "/static/js/app.js?v=30",
   "/static/sw.js",
 ];
 
