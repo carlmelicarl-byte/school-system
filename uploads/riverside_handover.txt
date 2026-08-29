@@ -1,0 +1,45 @@
+==============================================================
+  ELIMUPRO — CLIENT LAUNCH SHEET
+  Riverside Academy
+  Generated 2026-08-18
+==============================================================
+
+School        : Riverside Academy
+Subdomain URL : https://riverside.yourdomain.com
+Admin username: admin
+Admin password: L8W6YBak8yN_
+Default parent password: parent123  (parents MUST change on first login)
+
+YOUR ADMIN CHECKLIST (tick these off):
+----------------------------------------
+  [ ] Log in with the admin credentials above
+  [ ] Settings -> School: verify name, motto, address, phone, email (already pre-filled)
+  [ ] Settings -> School: upload your school logo (a placeholder may be set)
+  [ ] Settings -> Appearance: pick your colour theme and font
+  [ ] Settings -> Users: create teacher, accounts, librarian and parent accounts
+  [ ] Students: add your students (Add Student, or Import CSV in bulk)
+  [ ] Classes: confirm Grade 1-12 classes match your school (add/rename/remove)
+  [ ] Subjects: check the CBC subject list for your grades (add any extra subjects)
+  [ ] Finance: set Fee Structures per class and term, and Transport route fees
+  [ ] Exams: create your first exam and enter marks; print report cards
+  [ ] Library: add your books (or use Import); issue books to students
+  [ ] ID Cards: print ID cards for your students
+  [ ] Tell parents to sign in with their phone number (password: parent123 - they must change it)
+  [ ] Communicate your school's subdomain URL to staff and parents
+
+VENDOR CHECKLIST (before handover):
+----------------------------------------
+  [ ] Contract signed + setup fee received
+  [ ] ODPC data-controller registration confirmed (minors' data)
+  [ ] M-Pesa Paybill/Till credentials configured (when integration enabled)
+  [ ] SMS sender ID / Africa's Talking API key configured
+  [ ] Wildcard DNS *.yourdomain.com pointing at the server
+  [ ] Wildcard HTTPS certificate issued (certbot)
+  [ ] Backups enabled (systemd timer / Task Scheduler)
+  [ ] Client handover sheet given to the school (this file)
+  [ ] Training session scheduled (1 hr, admin + accounts staff)
+  [ ] Support contact (WhatsApp) agreed + response-time SLA
+
+==============================================================
+  Keep this sheet safe. Password resets: Settings -> Users -> Reset.
+==============================================================
