@@ -209,6 +209,7 @@ if (pwToggle) pwToggle.addEventListener("click", () => {
 function spawnParticles() {
   const wrap = $("#login-particles");
   if (!wrap) return;
+  if (wrap.childElementCount > 0) return;   // already spawned
   const n = 26;
   for (let i = 0; i < n; i++) {
     const s = document.createElement("span");
@@ -371,11 +372,30 @@ async function refreshLoginBrand() {
   if (name) name.textContent = state.settings ? state.settings.school_name : "ElimuPro";
   if (motto) motto.textContent = state.settings ? (state.settings.school_motto || "School Management System") : "School Management System";
   if ($("#login-year")) $("#login-year").textContent = new Date().getFullYear();
-  try {
-    const d = await api("/api/dashboard");
-    if (statS) statS.textContent = d.counts.students;
-    if (statT) statT.textContent = d.counts.teachers;
+  // NEVER use the api() helper here: when logged out it returns 401 and would
+  // re-trigger showLogin() -> refreshLoginBrand() -> 401 -> ... infinite loop.
+  // Use a raw fetch that cannot touch the auth flow, and only fetch stats
+  // when we actually have a token (otherwise show placeholders).
+  if (!authToken) {
+    if (statS) statS.textContent = "—";
+    if (statT) statT.textContent = "—";
     if (statM) statM.textContent = 18;
+    return;
+  }
+  try {
+    const res = await fetch("/api/dashboard", {
+      headers: { Authorization: "Bearer " + authToken },
+    });
+    if (res.ok) {
+      const d = await res.json();
+      if (statS) statS.textContent = d.counts.students;
+      if (statT) statT.textContent = d.counts.teachers;
+      if (statM) statM.textContent = 18;
+    } else {
+      if (statS) statS.textContent = "—";
+      if (statT) statT.textContent = "—";
+      if (statM) statM.textContent = 18;
+    }
   } catch (e) {
     if (statS) statS.textContent = "—";
     if (statT) statT.textContent = "—";
